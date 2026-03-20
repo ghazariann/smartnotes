@@ -2,3 +2,9 @@ node_modules/
 dist/
 out/
 *.vsix
+
+# internal planning docs
+blogpost.md
+SmartNotes-Project-Plan.md
+stage1-implementation.md
+tecnical details.md
