@@ -1,0 +1,109 @@
+{
+  "name": "smartnotes",
+  "displayName": "SmartNotes",
+  "description": "Persistent Markdown notes anchored to code lines, with hover tooltips and position tracking.",
+  "version": "0.1.0",
+  "publisher": "smartnotes",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": ["Other"],
+  "activationEvents": ["onStartupFinished"],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "smartnotes.addNote",
+        "title": "SmartNotes: Add Note to Selection"
+      },
+      {
+        "command": "smartnotes.openNote",
+        "title": "SmartNotes: Open Note at Cursor"
+      },
+      {
+        "command": "smartnotes.editNote",
+        "title": "SmartNotes: Edit Note",
+        "enablement": "false"
+      },
+      {
+        "command": "smartnotes.deleteNote",
+        "title": "SmartNotes: Delete Note",
+        "enablement": "false"
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "smartnotes.addNote",
+        "key": "ctrl+alt+n",
+        "mac": "cmd+alt+n",
+        "when": "editorTextFocus"
+      },
+      {
+        "command": "smartnotes.openNote",
+        "key": "ctrl+alt+o",
+        "mac": "cmd+alt+o",
+        "when": "editorTextFocus"
+      }
+    ],
+    "configuration": {
+      "title": "SmartNotes",
+      "properties": {
+        "smartnotes.gutterIconEnabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show gutter icon on lines with notes."
+        },
+        "smartnotes.lineHighlightEnabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Highlight lines that have notes."
+        },
+        "smartnotes.lineHighlightColor": {
+          "type": "string",
+          "default": "rgba(255, 220, 100, 0.15)",
+          "description": "Background color for highlighted note lines (CSS color)."
+        },
+        "smartnotes.overviewRulerEnabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show note markers in the overview ruler (scrollbar)."
+        },
+        "smartnotes.overviewRulerColor": {
+          "type": "string",
+          "default": "rgba(255, 180, 0, 0.8)",
+          "description": "Color of note markers in the overview ruler."
+        },
+        "smartnotes.orphanCleanupEnabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically delete notes whose source file no longer exists."
+        },
+        "smartnotes.orphanCleanupIntervalMinutes": {
+          "type": "number",
+          "default": 30,
+          "minimum": 1,
+          "description": "How often (in minutes) to scan for orphaned notes."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "compile": "node esbuild.js",
+    "watch": "node esbuild.js --watch",
+    "lint": "eslint src --ext ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "js-yaml": "^4.1.0"
+  },
+  "devDependencies": {
+    "@types/js-yaml": "^4.0.9",
+    "@types/node": "^20.0.0",
+    "@types/vscode": "^1.85.0",
+    "@typescript-eslint/eslint-plugin": "^7.0.0",
+    "@typescript-eslint/parser": "^7.0.0",
+    "esbuild": "^0.20.0",
+    "eslint": "^8.57.0",
+    "typescript": "^5.4.0"
+  }
+}

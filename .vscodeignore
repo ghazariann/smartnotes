@@ -1,0 +1,9 @@
+.vscode/**
+src/**
+out/**
+.eslintrc.json
+tsconfig.json
+esbuild.js
+**/*.map
+node_modules/**
+*.md
