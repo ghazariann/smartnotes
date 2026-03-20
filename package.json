@@ -14,11 +14,8 @@
     "commands": [
       {
         "command": "smartnotes.addNote",
-        "title": "SmartNotes: Add Note to Selection"
-      },
-      {
-        "command": "smartnotes.openNote",
-        "title": "SmartNotes: Open Note at Cursor"
+        "title": "SmartNotes: Add Note",
+        "icon": "$(add)"
       },
       {
         "command": "smartnotes.editNote",
@@ -29,19 +26,146 @@
         "command": "smartnotes.deleteNote",
         "title": "SmartNotes: Delete Note",
         "enablement": "false"
+      },
+      {
+        "command": "smartnotes.notes.open",
+        "title": "Open Note",
+        "icon": "$(go-to-file)"
+      },
+      {
+        "command": "smartnotes.notes.delete",
+        "title": "Delete Note",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "smartnotes.notes.refresh",
+        "title": "Refresh Notes",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "smartnotes.openNote",
+        "title": "SmartNotes: Open Note",
+        "icon": "$(open-preview)"
+      },
+      {
+        "command": "smartnotes.removeNoteAtLine",
+        "title": "SmartNotes: Remove Note"
+      },
+      {
+        "command": "smartnotes.gutterAction",
+        "title": "SmartNotes: Note..."
+      },
+      {
+        "command": "smartnotes.notes.reveal",
+        "title": "Go to Line",
+        "icon": "$(target)"
       }
     ],
+    "views": {
+      "explorer": [
+        {
+          "id": "smartnotes.notesView",
+          "name": "SmartNotes"
+        }
+      ]
+    },
+    "menus": {
+      "editor/context": [
+        {
+          "command": "smartnotes.addNote",
+          "group": "smartnotes@1",
+          "when": "editorTextFocus"
+        }
+      ],
+      "view/title": [
+        {
+          "command": "smartnotes.addNote",
+          "when": "view == smartnotes.notesView",
+          "group": "navigation@1"
+        },
+        {
+          "command": "smartnotes.notes.refresh",
+          "when": "view == smartnotes.notesView",
+          "group": "navigation@2"
+        }
+      ],
+      "view/title/context": [
+        {
+          "command": "smartnotes.addNote",
+          "when": "view == smartnotes.notesView",
+          "group": "smartnotes@1"
+        },
+        {
+          "command": "smartnotes.notes.open",
+          "when": "view == smartnotes.notesView",
+          "group": "smartnotes@2"
+        },
+        {
+          "command": "smartnotes.notes.delete",
+          "when": "view == smartnotes.notesView",
+          "group": "smartnotes@3"
+        }
+      ],
+      "editor/lineNumber/context": [
+        {
+          "command": "smartnotes.addNote",
+          "group": "smartnotes@1",
+          "when": "editorLineNumber not in smartnotes.linesWithNotes"
+        },
+        {
+          "command": "smartnotes.openNote",
+          "group": "smartnotes@2",
+          "when": "editorLineNumber in smartnotes.linesWithNotes"
+        },
+        {
+          "command": "smartnotes.removeNoteAtLine",
+          "group": "smartnotes@3",
+          "when": "editorLineNumber in smartnotes.linesWithNotes"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "smartnotes.notes.reveal",
+          "when": "view == smartnotes.notesView && viewItem == smartnotesNote",
+          "group": "inline@1"
+        },
+        {
+          "command": "smartnotes.notes.open",
+          "when": "view == smartnotes.notesView && viewItem == smartnotesNote",
+          "group": "inline@2"
+        },
+        {
+          "command": "smartnotes.notes.delete",
+          "when": "view == smartnotes.notesView && viewItem == smartnotesNote",
+          "group": "inline@3"
+        },
+        {
+          "command": "smartnotes.notes.open",
+          "when": "view == smartnotes.notesView && viewItem == smartnotesNote",
+          "group": "context@1"
+        },
+        {
+          "command": "smartnotes.notes.delete",
+          "when": "view == smartnotes.notesView && viewItem == smartnotesNote",
+          "group": "context@2"
+        },
+        {
+          "command": "smartnotes.addNote",
+          "when": "view == smartnotes.notesView && viewItem == smartnotesNote",
+          "group": "context@3"
+        },
+        {
+          "command": "smartnotes.addNote",
+          "when": "view == smartnotes.notesView && viewItem == smartnotesFile",
+          "group": "context@1"
+        }
+      ]
+    },
     "keybindings": [
       {
         "command": "smartnotes.addNote",
         "key": "ctrl+alt+n",
         "mac": "cmd+alt+n",
-        "when": "editorTextFocus"
-      },
-      {
-        "command": "smartnotes.openNote",
-        "key": "ctrl+alt+o",
-        "mac": "cmd+alt+o",
         "when": "editorTextFocus"
       }
     ],
@@ -55,7 +179,7 @@
         },
         "smartnotes.lineHighlightEnabled": {
           "type": "boolean",
-          "default": true,
+          "default": false,
           "description": "Highlight lines that have notes."
         },
         "smartnotes.lineHighlightColor": {

@@ -2,8 +2,6 @@
 
 Attach persistent Markdown notes to any line of code. Notes render as hover tooltips, stay anchored as code changes, and render images inline — including local screenshots via an automatic base64 conversion.
 
-![SmartNotes demo](docs/demo.gif)
-
 ---
 
 ## Features
@@ -11,8 +9,10 @@ Attach persistent Markdown notes to any line of code. Notes render as hover tool
 - **Hover tooltips** — notes render as rich Markdown directly on the annotated line
 - **Images in hover** — paste screenshots or diagrams into your note; local images are inlined as `data:` URIs to bypass VS Code's hover CSP
 - **Position tracking** — notes shift with your code as you type, using delta tracking on `onDidChangeTextDocument`
-- **Gutter icon + line highlight + overview ruler** — visual indicators on every annotated line, all configurable
-- **No source modifications** — notes are stored in `.vscode/smartnotes/`, never inside the source file
+- **Gutter icon + overview ruler** — visual indicators on every annotated line, configurable
+- **Context-aware gutter menu** — right-clicking a line number shows *Add Note* when no note exists, or *Open Note* + *Remove Note* when one does
+- **Explorer sidebar panel** — browse all notes grouped by file; each item shows the line number and first line of source code
+- **No source modifications** — notes live in `.vscode/smartnotes/`, never inside the source file
 - **Edit / Remove from hover** — footer links open the note file or delete it without leaving the editor
 
 ---
@@ -21,11 +21,14 @@ Attach persistent Markdown notes to any line of code. Notes render as hover tool
 
 | Action | How |
 |---|---|
-| Add note to current line or selection | `Ctrl+Alt+N` / right-click → *SmartNotes: Add Note* |
-| Open note at cursor | `Ctrl+Alt+O` |
-| Edit note | Click **Edit** in the hover footer |
-| Remove note | Click **Remove** in the hover footer, or right-click the line number |
+| Add note to current line or selection | `Ctrl+Alt+N` · right-click line number → *SmartNotes: Add Note* |
+| Open note at cursor | Right-click line number → *SmartNotes: Open Note* · click **Edit** in hover |
+| Remove note | Right-click line number → *SmartNotes: Remove Note* · click **Remove** in hover |
 | Browse all notes | SmartNotes panel in the Explorer sidebar |
+| Open note from sidebar | Click any note row |
+| Delete note from sidebar | Click the trash icon on a note row, or right-click → *Delete Note* |
+
+The gutter menu adapts: lines with a note show **Open** and **Remove**; lines without one show **Add**.
 
 ### Adding images
 
@@ -51,7 +54,7 @@ Notes live in `.vscode/smartnotes/`, mirroring the source tree:
       L10-L15.md    ← range note
 ```
 
-Each `.md` file is pure Markdown — open it in any editor.
+Each `.md` file is pure Markdown — open it in any editor. Commit the folder to share notes with your team, or add it to `.gitignore` to keep them local.
 
 ---
 
@@ -74,7 +77,6 @@ Each `.md` file is pure Markdown — open it in any editor.
 - **Position tracking Stage 3** — AI-assisted re-anchoring for major refactors via MCP
 - **MCP server** — expose notes as tools (`get_note`, `add_note`, `search_notes`) so AI assistants like Claude Code can read and write notes from chat
 - **Multi-workspace support**
-- **Configurable storage path**
 - **Marketplace publish**
 
 ---

@@ -21,7 +21,7 @@ vsce publish           # publish to VS Code Marketplace
 
 ## Architecture
 
-**Storage** — notes live in `.git/.smartnotes/` at the workspace root, one `.md` file per note. No changes are ever written to the source code itself. The `.git/` location avoids any permission or gitignore issues since `.git/` is always writable and never committed.
+**Storage** — notes live in `.vscode/.smartnotes/` at the workspace root, one `.md` file per note. No changes are ever written to the source code itself. 
 
 **Core classes to build:**
 - `NoteStore` — get / set / delete / list notes, keyed by file + semantic position (not line number)

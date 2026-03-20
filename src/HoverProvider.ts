@@ -1,3 +1,4 @@
+import * as fs from 'fs';
 import * as path from 'path';
 import * as vscode from 'vscode';
 import { NoteStore } from './NoteStore';
@@ -33,7 +34,7 @@ export class HoverProvider implements vscode.HoverProvider {
     md.isTrusted = true;
     md.supportHtml = false;
 
-    const body = this._processXrefs(note.body, document);
+    const body = this._processXrefs(this._inlineImages(note.body, note), document);
     if (body.trim()) {
       md.appendMarkdown(body);
       md.appendMarkdown('\n\n---\n\n');
@@ -48,6 +49,40 @@ export class HoverProvider implements vscode.HoverProvider {
     );
 
     return md;
+  }
+
+  /** Rewrite local image paths to data: URIs so VS Code's CSP allows them. */
+  private _inlineImages(body: string, note: Note): string {
+    const MIME: Record<string, string> = {
+      png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg',
+      gif: 'image/gif', webp: 'image/webp', svg: 'image/svg+xml',
+      bmp: 'image/bmp', ico: 'image/x-icon',
+    };
+    return body.replace(
+      /!\[([^\]]*)\]\((?!https?:|data:)([^)]+)\)/g,
+      (original, alt, imgPath) => {
+        const trimmed = imgPath.trim();
+        const ext = trimmed.split('.').pop()?.toLowerCase() ?? '';
+        const mime = MIME[ext];
+        if (!mime) return original;
+        const candidates = path.isAbsolute(trimmed)
+          ? [trimmed]
+          : [
+              path.join(this.workspaceRoot, trimmed),
+              path.join(this.workspaceRoot, path.dirname(note.file), trimmed),
+              path.join(path.dirname(note.filePath), trimmed),
+            ];
+        for (const resolved of candidates) {
+          try {
+            const b64 = fs.readFileSync(resolved).toString('base64');
+            return `![${alt}](data:${mime};base64,${b64})`;
+          } catch {
+            // try next candidate
+          }
+        }
+        return original;
+      }
+    );
   }
 
   /** Replace #L<n> and <file>#L<n> cross-references with clickable links. */

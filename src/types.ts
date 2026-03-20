@@ -5,4 +5,5 @@ export interface Note {
   to: number;         // 0-based line number, inclusive; equals `from` for single-line notes
   body: string;       // raw Markdown (no frontmatter)
   filePath: string;   // absolute path to the .md file in .git/.smartnotes/
+  anchorText?: string; // first line of source code at the noted position (display only)
 }
