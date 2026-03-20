@@ -2,6 +2,8 @@
 
 Attach persistent Markdown notes to any line of code. Notes render as hover tooltips, stay anchored as code changes, and render images inline — including local screenshots via an automatic base64 conversion.
 
+![Demo](media/demo.gif)
+
 ---
 
 ## Features
@@ -76,8 +78,6 @@ Each `.md` file is pure Markdown — open it in any editor. Commit the folder to
 - **Position tracking Stage 2** — content fingerprint to re-anchor notes after `git pull` or cold restart, even when lines shifted
 - **Position tracking Stage 3** — AI-assisted re-anchoring for major refactors via MCP
 - **MCP server** — expose notes as tools (`get_note`, `add_note`, `search_notes`) so AI assistants like Claude Code can read and write notes from chat
-- **Multi-workspace support**
-- **Marketplace publish**
 
 ---
 
@@ -89,5 +89,3 @@ npm run compile   # bundle with esbuild → dist/extension.js
 npm run watch     # watch mode
 npm run typecheck # tsc --noEmit
 ```
-
-Press **F5** in VS Code to launch the Extension Development Host.

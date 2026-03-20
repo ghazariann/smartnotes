@@ -64,11 +64,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
       const anchorText = editor.document.lineAt(from).text.trim().slice(0, 60) || undefined;
       const note = await noteStore!.addNote(fileKey, from, to, '', anchorText);
-      await vscode.commands.executeCommand(
-        'vscode.open',
-        vscode.Uri.file(note.filePath),
-        { viewColumn: vscode.ViewColumn.Beside }
-      );
+      const doc = await vscode.workspace.openTextDocument(vscode.Uri.file(note.filePath));
+      await vscode.window.showTextDocument(doc, { viewColumn: vscode.ViewColumn.Beside, preview: false });
     })
   );
 
@@ -86,11 +83,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         return;
       }
       if (notes.length === 1) {
-        await vscode.commands.executeCommand(
-          'vscode.open',
-          vscode.Uri.file(notes[0].filePath),
-          { viewColumn: vscode.ViewColumn.Beside }
-        );
+        const doc = await vscode.workspace.openTextDocument(vscode.Uri.file(notes[0].filePath));
+        await vscode.window.showTextDocument(doc, { viewColumn: vscode.ViewColumn.Beside, preview: false });
         return;
       }
       const items = notes.map(n => ({
@@ -103,11 +97,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         placeHolder: 'Select note to open',
       });
       if (picked) {
-        await vscode.commands.executeCommand(
-          'vscode.open',
-          vscode.Uri.file(picked.filePath),
-          { viewColumn: vscode.ViewColumn.Beside }
-        );
+        const doc = await vscode.workspace.openTextDocument(vscode.Uri.file(picked.filePath));
+        await vscode.window.showTextDocument(doc, { viewColumn: vscode.ViewColumn.Beside, preview: false });
       }
     })
   );
@@ -116,11 +107,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.commands.registerCommand('smartnotes.editNote', async (noteId: string) => {
       const note = noteStore!.findById(noteId);
       if (!note) return;
-      await vscode.commands.executeCommand(
-        'vscode.open',
-        vscode.Uri.file(note.filePath),
-        { viewColumn: vscode.ViewColumn.Beside }
-      );
+      const doc = await vscode.workspace.openTextDocument(vscode.Uri.file(note.filePath));
+      await vscode.window.showTextDocument(doc, { viewColumn: vscode.ViewColumn.Beside, preview: false });
     })
   );
 
@@ -143,11 +131,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.commands.registerCommand('smartnotes.notes.open', async (item?: NoteItem) => {
       const target = item ?? (treeView.selection[0] instanceof NoteItem ? treeView.selection[0] : undefined);
       if (!target) return;
-      await vscode.commands.executeCommand(
-        'vscode.open',
-        vscode.Uri.file(target.note.filePath),
-        { viewColumn: vscode.ViewColumn.Beside }
-      );
+      const doc = await vscode.workspace.openTextDocument(vscode.Uri.file(target.note.filePath));
+      await vscode.window.showTextDocument(doc, { viewColumn: vscode.ViewColumn.Beside, preview: false });
     })
   );
 
@@ -200,7 +185,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       );
       if (!picked) return;
       if (picked.action === 'open') {
-        await vscode.commands.executeCommand('vscode.open', vscode.Uri.file(note.filePath), { viewColumn: vscode.ViewColumn.Beside });
+        const doc = await vscode.workspace.openTextDocument(vscode.Uri.file(note.filePath));
+        await vscode.window.showTextDocument(doc, { viewColumn: vscode.ViewColumn.Beside, preview: false });
       } else {
         for (const n of notes) await noteStore!.deleteNote(n.id);
       }
@@ -219,18 +205,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   watcher.onDidChange(uri => noteStore!.reloadNoteFile(uri.fsPath));
   watcher.onDidDelete(uri => noteStore!.removeNoteFile(uri.fsPath));
   context.subscriptions.push(watcher);
-
-  // ─── auto-delete empty notes on close ────────────────────────────────────
-
-  context.subscriptions.push(
-    vscode.workspace.onDidCloseTextDocument(async doc => {
-      if (!doc.uri.fsPath.startsWith(noteStore!.storeDir)) return;
-      const note = noteStore!.listAllNotes().find(n => n.filePath === doc.uri.fsPath);
-      if (note && note.body.trim() === '') {
-        await noteStore!.deleteNote(note.id);
-      }
-    })
-  );
 
   // ─── orphan cleanup ───────────────────────────────────────────────────────
 
