@@ -1,9 +1,15 @@
-.vscode/**
-src/**
-out/**
-.eslintrc.json
-tsconfig.json
+.claude/
+.vscode/
+src/
+node_modules/
+out/
+*.vsix
+.gitignore
+.vscodeignore
 esbuild.js
-**/*.map
-node_modules/**
-*.md
+tsconfig.json
+blogpost.md
+SmartNotes-Project-Plan.md
+stage1-implementation.md
+CLAUDE.md
+tecnical details.md

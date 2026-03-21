@@ -3,10 +3,15 @@
   "displayName": "SmartNotes",
   "description": "Persistent Markdown notes anchored to code lines, with hover tooltips and position tracking.",
   "version": "0.1.0",
-  "publisher": "smartnotes",
+  "publisher": "ghazariann",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ghazariann/smartnotes"
+  },
   "engines": {
     "vscode": "^1.85.0"
   },
+  "icon": "media/icon.png",
   "categories": ["Other"],
   "activationEvents": ["onStartupFinished"],
   "main": "./dist/extension.js",
@@ -61,11 +66,20 @@
         "icon": "$(target)"
       }
     ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "smartnotes",
+          "title": "SmartNotes",
+          "icon": "media/icon-activity.svg"
+        }
+      ]
+    },
     "views": {
-      "explorer": [
+      "smartnotes": [
         {
           "id": "smartnotes.notesView",
-          "name": "SmartNotes"
+          "name": "Notes"
         }
       ]
     },
@@ -168,48 +182,7 @@
         "mac": "cmd+alt+n",
         "when": "editorTextFocus"
       }
-    ],
-    "configuration": {
-      "title": "SmartNotes",
-      "properties": {
-        "smartnotes.gutterIconEnabled": {
-          "type": "boolean",
-          "default": true,
-          "description": "Show gutter icon on lines with notes."
-        },
-        "smartnotes.lineHighlightEnabled": {
-          "type": "boolean",
-          "default": false,
-          "description": "Highlight lines that have notes."
-        },
-        "smartnotes.lineHighlightColor": {
-          "type": "string",
-          "default": "rgba(255, 220, 100, 0.15)",
-          "description": "Background color for highlighted note lines (CSS color)."
-        },
-        "smartnotes.overviewRulerEnabled": {
-          "type": "boolean",
-          "default": true,
-          "description": "Show note markers in the overview ruler (scrollbar)."
-        },
-        "smartnotes.overviewRulerColor": {
-          "type": "string",
-          "default": "rgba(255, 180, 0, 0.8)",
-          "description": "Color of note markers in the overview ruler."
-        },
-        "smartnotes.orphanCleanupEnabled": {
-          "type": "boolean",
-          "default": true,
-          "description": "Automatically delete notes whose source file no longer exists."
-        },
-        "smartnotes.orphanCleanupIntervalMinutes": {
-          "type": "number",
-          "default": 30,
-          "minimum": 1,
-          "description": "How often (in minutes) to scan for orphaned notes."
-        }
-      }
-    }
+    ]
   },
   "scripts": {
     "compile": "node esbuild.js",

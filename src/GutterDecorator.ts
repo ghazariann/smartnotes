@@ -27,16 +27,6 @@ export class GutterDecorator {
       vscode.window.onDidChangeVisibleTextEditors(editors => {
         for (const e of editors) this._scheduleRefresh(e);
       }),
-      vscode.workspace.onDidChangeConfiguration(e => {
-        if (e.affectsConfiguration('smartnotes')) {
-          this.gutterType?.dispose();
-          this.highlightType?.dispose();
-          this._createDecorationTypes();
-          for (const editor of vscode.window.visibleTextEditors) {
-            this._applyDecorations(editor);
-          }
-        }
-      })
     );
 
     for (const editor of vscode.window.visibleTextEditors) {
@@ -45,9 +35,8 @@ export class GutterDecorator {
   }
 
   private _createDecorationTypes(): void {
-    const config = vscode.workspace.getConfiguration('smartnotes');
     const iconPath = vscode.Uri.file(
-      path.join(this.context.extensionPath, 'icons', 'note.svg')
+      path.join(this.context.extensionPath, 'media', 'icon-gutter.svg')
     );
 
     this.gutterType = vscode.window.createTextEditorDecorationType({
@@ -55,14 +44,8 @@ export class GutterDecorator {
       gutterIconSize: 'auto',
     });
 
-    const highlightEnabled = config.get<boolean>('lineHighlightEnabled', true);
-    const highlightColor = config.get<string>('lineHighlightColor', 'rgba(255, 220, 100, 0.15)');
-    const rulerEnabled = config.get<boolean>('overviewRulerEnabled', true);
-    const rulerColor = config.get<string>('overviewRulerColor', 'rgba(255, 180, 0, 0.8)');
-
     this.highlightType = vscode.window.createTextEditorDecorationType({
-      backgroundColor: highlightEnabled ? highlightColor : undefined,
-      overviewRulerColor: rulerEnabled ? rulerColor : undefined,
+      overviewRulerColor: 'rgba(255, 180, 0, 0.8)',
       overviewRulerLane: vscode.OverviewRulerLane.Right,
       isWholeLine: true,
     });
@@ -83,7 +66,6 @@ export class GutterDecorator {
 
   private _applyDecorations(editor: vscode.TextEditor): void {
     if (!this.gutterType || !this.highlightType) return;
-    const config = vscode.workspace.getConfiguration('smartnotes');
     const workspaceRoot = this._workspaceRoot();
     if (!workspaceRoot) return;
 
@@ -94,9 +76,7 @@ export class GutterDecorator {
     const highlightRanges: vscode.Range[] = [];
 
     for (const note of notes) {
-      if (config.get<boolean>('gutterIconEnabled', true)) {
-        gutterRanges.push(new vscode.Range(note.from, 0, note.from, 0));
-      }
+      gutterRanges.push(new vscode.Range(note.from, 0, note.from, 0));
       highlightRanges.push(new vscode.Range(note.from, 0, note.to, Number.MAX_SAFE_INTEGER));
     }
 

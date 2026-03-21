@@ -59,7 +59,7 @@ export class HoverProvider implements vscode.HoverProvider {
       bmp: 'image/bmp', ico: 'image/x-icon',
     };
     return body.replace(
-      /!\[([^\]]*)\]\((?!https?:|data:)([^)]+)\)/g,
+      /!\[([^\]]*)\]\((?!https?:|data:)((?:[^()]+|\([^()]*\))+)\)/g,
       (original, alt, imgPath) => {
         const trimmed = imgPath.trim();
         const ext = trimmed.split('.').pop()?.toLowerCase() ?? '';
@@ -74,6 +74,14 @@ export class HoverProvider implements vscode.HoverProvider {
             ];
         for (const resolved of candidates) {
           try {
+            const stat = fs.statSync(resolved);
+            if (stat.size > 76_800) {
+              // Too large to inline safely — show a clickable open link instead.
+              const kb = Math.round(stat.size / 1024);
+              const arg = encodeURIComponent(JSON.stringify([vscode.Uri.file(resolved).toString()]));
+              const label = alt || path.basename(resolved);
+              return `[Image: ${label} (${kb} KB — click to open)](command:vscode.open?${arg})`;
+            }
             const b64 = fs.readFileSync(resolved).toString('base64');
             return `![${alt}](data:${mime};base64,${b64})`;
           } catch {
