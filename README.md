@@ -27,7 +27,7 @@ Notes stay anchored as code changes. Delta tracking keeps them accurate during a
 ---
 
 ### Sidebar panel & gutter menu
-Browse all notes grouped by file in a dedicated activity bar panel. Right-clicking a line number shows *Add Note* when none exists, or *Open Note* + *Remove Note* when one does.
+Browse all notes grouped by file in a dedicated activity bar panel. Right-click any section to add, open, or remove notes, or use `Ctrl+Alt+N` to add a note from the keyboard.
 
 > *SmartNotes sidebar panel and context-aware gutter menu*
 
@@ -53,3 +53,4 @@ Each `.md` file is pure Markdown — open it in any editor. Commit the folder to
 ## Future Work
 
 - **MCP server** — expose notes as tools (`get_note`, `add_note`, `update_note`, `delete_note`, `search_notes`) so AI agents can read and write notes directly from chat, and perform AI-assisted re-anchoring after large refactors
+

@@ -2,7 +2,7 @@
   "name": "smartnotes",
   "displayName": "SmartNotes",
   "description": "Persistent Markdown notes anchored to code lines, with hover tooltips and position tracking.",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "publisher": "ghazariann",
   "repository": {
     "type": "git",
