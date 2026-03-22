@@ -1,13 +1,11 @@
+import * as path from 'path';
 import * as vscode from 'vscode';
 import { NoteStore } from './NoteStore';
 import { Note } from './types';
 
 export class NoteItem extends vscode.TreeItem {
   constructor(public readonly note: Note) {
-    const lines = note.from === note.to
-      ? `L${note.from + 1}`
-      : `L${note.from + 1}–${note.to + 1}`;
-    const label = note.anchorText ? `${lines}  ${note.anchorText}` : lines;
+    const label = path.basename(note.filePath, '.md');
     super(label, vscode.TreeItemCollapsibleState.None);
     this.description = note.body.split('\n')[0].trim().slice(0, 60) || '(empty)';
     this.tooltip = note.body || '(empty)';

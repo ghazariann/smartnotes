@@ -23,7 +23,8 @@ export class NoteStore {
         if (!pos) continue;
         const fileKey = this._fileKeyFromNotePath(filePath);
         const body = fs.readFileSync(filePath, 'utf8');
-        const anchorText = this._anchorTextFromOpenDocs(fileKey, pos.from);
+        // Prefer live doc text; fall back to the slug encoded in the filename.
+        const anchorText = this._anchorTextFromOpenDocs(fileKey, pos.from) ?? pos.anchorText;
         const note: Note = { id: filePath, file: fileKey, from: pos.from, to: pos.to, body, filePath, anchorText };
         const bucket = this.index.get(fileKey) ?? [];
         bucket.push(note);
@@ -118,9 +119,9 @@ export class NoteStore {
       if (!pos) return;
       const fileKey = this._fileKeyFromNotePath(filePath);
       const body = fs.readFileSync(filePath, 'utf8');
+      const existing = this._findById(filePath); // save anchorText BEFORE removing
       this._removeByFilePath(filePath);
-      const existing = this._findById(filePath);
-      const anchorText = existing?.anchorText ?? this._anchorTextFromOpenDocs(fileKey, pos.from);
+      const anchorText = existing?.anchorText ?? pos.anchorText ?? this._anchorTextFromOpenDocs(fileKey, pos.from);
       const note: Note = { id: filePath, file: fileKey, from: pos.from, to: pos.to, body, filePath, anchorText };
       const bucket = this.index.get(fileKey) ?? [];
       bucket.push(note);
@@ -160,17 +161,18 @@ export class NoteStore {
     }
   }
 
-  /** Parse `from`/`to` (0-indexed) from a filename like `L10.md`, `L5-L10.md`, or `L10 - def foo.md`. */
-  private _parseFilename(filename: string): { from: number; to: number } | null {
-    const base = filename.slice(0, -3); // strip .md
-    let m = base.match(/^L(\d+)(?:\s+-.*)?(?:~\d+)?$/);
+  /** Parse `from`/`to` (0-indexed) and optional `anchorText` slug from filenames like
+   *  `L10.md`, `L5-L10.md`, `L10 - def foo.md`, or `[err] L10 - def foo.md`. */
+  private _parseFilename(filename: string): { from: number; to: number; anchorText?: string } | null {
+    const base = filename.slice(0, -3).replace(/^\[err\]\s*/, ''); // strip .md and optional [err] prefix
+    let m = base.match(/^L(\d+)(?:\s+-\s+(.+?))?(?:~\d+)?$/);
     if (m) {
       const line = parseInt(m[1], 10) - 1;
-      return { from: line, to: line };
+      return { from: line, to: line, anchorText: m[2]?.trim() || undefined };
     }
-    m = base.match(/^L(\d+)-L(\d+)(?:\s+-.*)?(?:~\d+)?$/);
+    m = base.match(/^L(\d+)-L(\d+)(?:\s+-\s+(.+?))?(?:~\d+)?$/);
     if (m) {
-      return { from: parseInt(m[1], 10) - 1, to: parseInt(m[2], 10) - 1 };
+      return { from: parseInt(m[1], 10) - 1, to: parseInt(m[2], 10) - 1, anchorText: m[3]?.trim() || undefined };
     }
     return null;
   }
@@ -238,8 +240,98 @@ export class NoteStore {
     this.writeTimers.set(note.id, timer);
   }
 
+  /**
+   * Stage 2: called every time a source file is opened.
+   * For each note with an anchorText fingerprint, verifies the stored line still matches
+   * the actual file content. Re-anchors if the line moved; flags with [err] prefix and
+   * logs to the output channel if the content can no longer be found anywhere in the file.
+   */
+  verifyAndReanchorFile(
+    fileKey: string,
+    document: vscode.TextDocument,
+    outputChannel: vscode.OutputChannel
+  ): void {
+    const notes = this.getNotesForFile(fileKey);
+    if (notes.length === 0) return;
+
+    const lines = document.getText().split('\n');
+
+    for (const note of notes) {
+      if (!note.anchorText) continue;
+
+      const currentLine = lines[note.from];
+      const alreadyErrored = path.basename(note.filePath).startsWith('[err]');
+
+      // Current position still matches — clear [err] flag if present.
+      if (currentLine !== undefined && this._anchorMatches(note.anchorText, currentLine)) {
+        if (alreadyErrored) {
+          const newPath = path.join(path.dirname(note.filePath), path.basename(note.filePath).replace(/^\[err\]\s*/, ''));
+          try {
+            fs.renameSync(note.filePath, newPath);
+            note.id = newPath;
+            note.filePath = newPath;
+          } catch { /* leave as-is if rename fails */ }
+        }
+        continue;
+      }
+
+      // Search for best (closest) match across all lines.
+      let bestLine = -1;
+      let bestDist = Infinity;
+      for (let i = 0; i < lines.length; i++) {
+        if (this._anchorMatches(note.anchorText, lines[i])) {
+          const dist = Math.abs(i - note.from);
+          if (dist < bestDist) { bestDist = dist; bestLine = i; }
+        }
+      }
+
+      if (bestLine !== -1) {
+        // Found at a different line — re-anchor (updateNotePosition renames to a clean path).
+        const oldFrom = note.from;
+        const rangeDelta = note.to - note.from;
+        this.updateNotePosition(note.id, bestLine, bestLine + rangeDelta);
+        outputChannel.appendLine(
+          `[SmartNotes] Re-anchored note in ${fileKey}: line ${oldFrom + 1} → ${bestLine + 1}  ("${note.anchorText}")`
+        );
+        outputChannel.show(true);
+      } else {
+        // Not found anywhere — flag as error.
+        if (!alreadyErrored) {
+          const newPath = path.join(path.dirname(note.filePath), '[err] ' + path.basename(note.filePath));
+          try {
+            fs.renameSync(note.filePath, newPath);
+            note.id = newPath;
+            note.filePath = newPath;
+          } catch { /* leave as-is */ }
+        }
+        outputChannel.appendLine(
+          `[SmartNotes] Cannot re-anchor: "${note.anchorText}" not found in ${fileKey} — ${path.basename(note.filePath)}`
+        );
+        outputChannel.show(true);
+      }
+    }
+  }
+
   dispose(): void {
     for (const timer of this.writeTimers.values()) clearTimeout(timer);
     this.changeEmitter.dispose();
+  }
+
+  // ─── normalization helpers ────────────────────────────────────────────────
+
+  /** Strips trailing comments and collapses whitespace so reformats and inline
+   *  comment additions don't break anchor matching. */
+  private _normalize(text: string): string {
+    let s = text.trim();
+    s = s.replace(/\s+\/\/.*$/, '');  // trailing // comment (won't touch http://)
+    s = s.replace(/\s+#+.*$/, '');    // trailing # comment
+    return s.replace(/\s+/g, ' ').trim();
+  }
+
+  private _anchorMatches(anchorText: string, lineText: string): boolean {
+    const aNorm = this._normalize(anchorText);
+    const lNorm = this._normalize(lineText);
+    if (aNorm.length < 4 || lNorm.length < 4) return false;
+    return aNorm === lNorm || lNorm.startsWith(aNorm) || aNorm.startsWith(lNorm);
   }
 }

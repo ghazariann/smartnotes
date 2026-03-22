@@ -16,11 +16,31 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     return;
   }
 
+  const outputChannel = vscode.window.createOutputChannel('SmartNotes');
+  context.subscriptions.push(outputChannel);
+
   noteStore = new NoteStore(workspaceRoot);
   await noteStore.loadAll();
 
   const positionTracker = new PositionTracker(noteStore);
   positionTracker.register(context);
+
+  context.subscriptions.push(
+    vscode.workspace.onDidOpenTextDocument(doc => {
+      if (doc.uri.scheme !== 'file') return;
+      const fileKey = toFileKey(workspaceRoot, doc.uri);
+      if (noteStore!.getNotesForFile(fileKey).length > 0)
+        noteStore!.verifyAndReanchorFile(fileKey, doc, outputChannel);
+    })
+  );
+
+  // Run for documents already open before the extension activated.
+  for (const doc of vscode.workspace.textDocuments) {
+    if (doc.uri.scheme !== 'file') continue;
+    const fileKey = toFileKey(workspaceRoot, doc.uri);
+    if (noteStore!.getNotesForFile(fileKey).length > 0)
+      noteStore!.verifyAndReanchorFile(fileKey, doc, outputChannel);
+  }
 
   const hoverProvider = new HoverProvider(noteStore, workspaceRoot);
   context.subscriptions.push(
