@@ -4,8 +4,6 @@ src/
 node_modules/
 out/
 *.vsix
-dist/mcp-server.js
-dist/mcp-server.js.map
 .gitignore
 .vscodeignore
 esbuild.js

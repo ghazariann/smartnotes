@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.3.0] - 2026-03-23
+
+### Added
+- **MCP server** bundled in the extension — exposes 10 tools (`list_notes`, `get_note`, `add_note`, `update_note`, `delete_note`, `search_notes`, `copy_note`, `move_note`, `list_files`, `rename_file_notes`) so Claude Code and other AI agents can read and write notes directly from chat
+- On activation, `mcp-server.js` is copied to a stable version-independent path in VS Code global storage; a notification provides the exact `claude mcp add` command to run once
+- MCP server defaults workspace to `process.cwd()`, so no workspace argument needed in the `claude mcp add` command
+- `noteStoreUtils.ts` shares pure-function layer used by both `NoteStore` and the MCP server
+
+
 ## [0.2.2] - 2026-03-23
 
 ### Added

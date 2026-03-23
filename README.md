@@ -50,7 +50,35 @@ Notes live in `.vscode/smartnotes/`, mirroring the source tree:
 Each `.md` file is pure Markdown — open it in any editor. Commit the folder to share notes with your team, or add it to `.gitignore` to keep them local.
 
 
-## Future Work
+## MCP server 
 
-- **MCP server** — expose notes as tools (`get_note`, `add_note`, `update_note`, `delete_note`, `search_notes`) so AI agents can read and write notes directly from chat, and perform AI-assisted re-anchoring after large refactors
+SmartNotes includes a bundled MCP server so agents (claude code for now) can read and write notes directly from chat.
 
+**Setup (once):** When you install or update the extension, a notification appears with a "Copy Command" button. Click it, paste the command in your terminal:
+
+```bash
+claude mcp add smartnotes node "/path/to/stable/mcp-server.js"
+```
+
+That's it. The path is stable, so it won't change when the extension updates.
+
+**Tools available to Claude:**
+
+| Tool | What it does |
+|------|-------------|
+| `list_notes` | List all notes; optionally filter by file |
+| `get_note` | Read a note at a specific line |
+| `add_note` | Create a note anchored to a line |
+| `update_note` | Overwrite a note's content |
+| `delete_note` | Delete a note at a line |
+| `search_notes` | Full-text search across all notes |
+| `copy_note` | Copy a note to another file/line |
+| `move_note` | Move a note to another file/line |
+| `list_files` | List files that have notes, with counts |
+| `rename_file_notes` | Re-attach all notes after a file rename |
+
+**Example prompts:**
+- *"What SmartNotes do I have in this project?"*
+- *"Explain what `verifyAndReanchorFile` does and save the explanation as a note on line 249 of src/NoteStore.ts"*
+- *"I renamed utils.ts to helpers.ts, update the notes"*
+- *Check all my SmartNotes for any that start with [err] — those are notes that couldn't be re-anchored automatically after a file change. For each one, look at the note's filename to understand what function or line it was on, then search the codebase to find where that code might have moved — it could be a renamed function, a renamed file, or code extracted to a different module. Reason out the best match and move each note there using move_note and give summary"*

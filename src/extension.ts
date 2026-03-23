@@ -49,26 +49,27 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }
   }
 
-  if (!context.globalState.get('smartnotes.mcpNotified')) {
-    const mcpServerPath = path.join(context.extensionPath, 'dist', 'mcp-server.js').replace(/\\/g, '/');
-    const snippet = JSON.stringify({
-      mcpServers: {
-        smartnotes: {
-          command: 'node',
-          args: [mcpServerPath, workspaceRoot.replace(/\\/g, '/')],
-        },
-      },
-    }, null, 2);
+  // ─── MCP server: copy to stable path and notify ───────────────────────────
+  const stableMcpDir = context.globalStorageUri.fsPath;
+  const stableMcpPath = path.join(stableMcpDir, 'mcp-server.js');
+  try {
+    fs.mkdirSync(stableMcpDir, { recursive: true });
+    fs.copyFileSync(path.join(context.extensionPath, 'dist', 'mcp-server.js'), stableMcpPath);
+  } catch { /* non-fatal */ }
+
+  const currentVersion = context.extension.packageJSON.version as string;
+  if (context.globalState.get<string>('smartnotes.mcpNotifiedVersion') !== currentVersion) {
+    const mcpCommand = `claude mcp add smartnotes node "${stableMcpPath.replace(/\\/g, '/')}"`;
     vscode.window.showInformationMessage(
-      'SmartNotes: MCP server is bundled. Add it to your Claude Code settings to use notes in chat.',
-      'Copy MCP Config'
+      'SmartNotes: Run this once in your terminal to enable Claude Code chat integration.',
+      'Copy Command'
     ).then(choice => {
-      if (choice === 'Copy MCP Config') {
-        vscode.env.clipboard.writeText(snippet);
-        vscode.window.showInformationMessage('SmartNotes: MCP config copied to clipboard.');
+      if (choice === 'Copy Command') {
+        vscode.env.clipboard.writeText(mcpCommand);
+        vscode.window.showInformationMessage('SmartNotes: Command copied! Paste it in any terminal.');
       }
     });
-    context.globalState.update('smartnotes.mcpNotified', true);
+    context.globalState.update('smartnotes.mcpNotifiedVersion', currentVersion);
   }
 
   const positionTracker = new PositionTracker(noteStore);
