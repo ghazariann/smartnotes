@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.2.2] - 2026-03-23
+
+### Added
+- Copy / Paste in gutter menu — right-click a line with a note to copy it; paste appears on any empty line after copying and disappears after one use
+- Empty notes are shown as bookmarks in the sidebar (bookmark icon, `(bookmark)` label) while retaining full note functionality
+- Startup image cleanup — unreferenced image files left in the notes storage directory are deleted automatically on activation
+- Orphan cleanup — notes whose source file no longer exists are deleted on startup with output channel logging; enabled by default, can be disabled via `smartnotes.orphanCleanup`
+
+### Changed
+- Six new settings exposed in VS Code Settings UI under **SmartNotes**:
+  - `smartnotes.openBeside` — open notes beside the editor or in the same tab (default: same tab)
+  - `smartnotes.anchorTextLength` — max characters from the source line used in note filenames (default: 60)
+  - `smartnotes.showOverviewRuler` — toggle orange scrollbar marks for annotated lines (default: on)
+  - `smartnotes.storagePath` — custom notes directory, relative or absolute (default: `.vscode/.smartnotes/`)
+  - `smartnotes.orphanCleanup` — delete notes for missing source files on startup (default: on)
+
 ## [0.2.1] - 2026-03-22
 
 ### Changed

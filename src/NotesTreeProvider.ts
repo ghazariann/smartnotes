@@ -7,10 +7,11 @@ export class NoteItem extends vscode.TreeItem {
   constructor(public readonly note: Note) {
     const label = path.basename(note.filePath, '.md');
     super(label, vscode.TreeItemCollapsibleState.None);
-    this.description = note.body.split('\n')[0].trim().slice(0, 60) || '(empty)';
-    this.tooltip = note.body || '(empty)';
+    const isEmpty = !note.body.trim();
+    this.description = isEmpty ? '(bookmark)' : note.body.split('\n')[0].trim().slice(0, 60);
+    this.tooltip = note.body || '(bookmark)';
     this.contextValue = 'smartnotesNote';
-    this.iconPath = new vscode.ThemeIcon('note');
+    this.iconPath = new vscode.ThemeIcon(isEmpty ? 'bookmark' : 'note');
     this.command = { command: 'smartnotes.notes.open', title: 'Open Note', arguments: [this] };
   }
 }

@@ -1,3 +1,4 @@
+import * as fs from 'fs';
 import * as path from 'path';
 import * as vscode from 'vscode';
 import { NoteStore } from './NoteStore';
@@ -19,8 +20,56 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const outputChannel = vscode.window.createOutputChannel('SmartNotes');
   context.subscriptions.push(outputChannel);
 
+  const cfg = () => vscode.workspace.getConfiguration('smartnotes');
+  const openColumn = () => cfg().get<boolean>('openBeside', false) ? vscode.ViewColumn.Beside : vscode.ViewColumn.Active;
+  const anchorLen = () => cfg().get<number>('anchorTextLength', 60);
+
   noteStore = new NoteStore(workspaceRoot);
   await noteStore.loadAll();
+
+  // ─── startup image cleanup ────────────────────────────────────────────────
+  {
+    const IMAGE_EXTS = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg', '.bmp']);
+    const walkDir = (dir: string): string[] => {
+      try {
+        return fs.readdirSync(dir, { withFileTypes: true }).flatMap(e =>
+          e.isDirectory() ? walkDir(path.join(dir, e.name)) : [path.join(dir, e.name)]
+        );
+      } catch { return []; }
+    };
+    const allFiles = walkDir(noteStore.storeDir);
+    const mdContent = allFiles
+      .filter(f => f.endsWith('.md'))
+      .map(f => { try { return fs.readFileSync(f, 'utf8'); } catch { return ''; } })
+      .join('\n');
+    for (const file of allFiles) {
+      if (IMAGE_EXTS.has(path.extname(file).toLowerCase()) && !mdContent.includes(path.basename(file))) {
+        try { fs.unlinkSync(file); } catch {}
+      }
+    }
+  }
+
+  if (!context.globalState.get('smartnotes.mcpNotified')) {
+    const mcpServerPath = path.join(context.extensionPath, 'dist', 'mcp-server.js').replace(/\\/g, '/');
+    const snippet = JSON.stringify({
+      mcpServers: {
+        smartnotes: {
+          command: 'node',
+          args: [mcpServerPath, workspaceRoot.replace(/\\/g, '/')],
+        },
+      },
+    }, null, 2);
+    vscode.window.showInformationMessage(
+      'SmartNotes: MCP server is bundled. Add it to your Claude Code settings to use notes in chat.',
+      'Copy MCP Config'
+    ).then(choice => {
+      if (choice === 'Copy MCP Config') {
+        vscode.env.clipboard.writeText(snippet);
+        vscode.window.showInformationMessage('SmartNotes: MCP config copied to clipboard.');
+      }
+    });
+    context.globalState.update('smartnotes.mcpNotified', true);
+  }
 
   const positionTracker = new PositionTracker(noteStore);
   positionTracker.register(context);
@@ -82,10 +131,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         if (to > from && editor.selection.end.character === 0) to--;
       }
 
-      const anchorText = editor.document.lineAt(from).text.trim().slice(0, 60) || undefined;
+      const anchorText = editor.document.lineAt(from).text.trim().slice(0, anchorLen()) || undefined;
       const note = await noteStore!.addNote(fileKey, from, to, '', anchorText);
       const doc = await vscode.workspace.openTextDocument(vscode.Uri.file(note.filePath));
-      await vscode.window.showTextDocument(doc, { viewColumn: vscode.ViewColumn.Beside, preview: false });
+      await vscode.window.showTextDocument(doc, { viewColumn: openColumn(), preview: false });
     })
   );
 
@@ -104,7 +153,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       }
       if (notes.length === 1) {
         const doc = await vscode.workspace.openTextDocument(vscode.Uri.file(notes[0].filePath));
-        await vscode.window.showTextDocument(doc, { viewColumn: vscode.ViewColumn.Beside, preview: false });
+        await vscode.window.showTextDocument(doc, { viewColumn: openColumn(), preview: false });
         return;
       }
       const items = notes.map(n => ({
@@ -118,7 +167,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       });
       if (picked) {
         const doc = await vscode.workspace.openTextDocument(vscode.Uri.file(picked.filePath));
-        await vscode.window.showTextDocument(doc, { viewColumn: vscode.ViewColumn.Beside, preview: false });
+        await vscode.window.showTextDocument(doc, { viewColumn: openColumn(), preview: false });
       }
     })
   );
@@ -128,7 +177,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       const note = noteStore!.findById(noteId);
       if (!note) return;
       const doc = await vscode.workspace.openTextDocument(vscode.Uri.file(note.filePath));
-      await vscode.window.showTextDocument(doc, { viewColumn: vscode.ViewColumn.Beside, preview: false });
+      await vscode.window.showTextDocument(doc, { viewColumn: openColumn(), preview: false });
     })
   );
 
@@ -152,7 +201,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       const target = item ?? (treeView.selection[0] instanceof NoteItem ? treeView.selection[0] : undefined);
       if (!target) return;
       const doc = await vscode.workspace.openTextDocument(vscode.Uri.file(target.note.filePath));
-      await vscode.window.showTextDocument(doc, { viewColumn: vscode.ViewColumn.Beside, preview: false });
+      await vscode.window.showTextDocument(doc, { viewColumn: openColumn(), preview: false });
     })
   );
 
@@ -183,6 +232,36 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     })
   );
 
+  let copiedNoteBody: string | undefined;
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand('smartnotes.copyNote', async (ctx?: { lineNumber: number }) => {
+      const editor = vscode.window.activeTextEditor;
+      if (!editor) return;
+      const line = ctx?.lineNumber !== undefined ? ctx.lineNumber - 1 : editor.selection.active.line;
+      const fileKey = toFileKey(workspaceRoot, editor.document.uri);
+      const notes = noteStore!.getNotesAtLine(fileKey, line);
+      if (notes.length === 0) return;
+      copiedNoteBody = fs.readFileSync(notes[0].filePath, 'utf8');
+      vscode.commands.executeCommand('setContext', 'smartnotes.hasCopiedNote', true);
+      vscode.window.showInformationMessage('SmartNotes: Note copied.');
+    })
+  );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand('smartnotes.pasteNote', async (ctx?: { lineNumber: number }) => {
+      if (copiedNoteBody === undefined) return;
+      const editor = vscode.window.activeTextEditor;
+      if (!editor) return;
+      const line = ctx?.lineNumber !== undefined ? ctx.lineNumber - 1 : editor.selection.active.line;
+      const fileKey = toFileKey(workspaceRoot, editor.document.uri);
+      const anchorText = editor.document.lineAt(line).text.trim().slice(0, anchorLen()) || undefined;
+      await noteStore!.addNote(fileKey, line, line, copiedNoteBody, anchorText);
+      copiedNoteBody = undefined;
+      vscode.commands.executeCommand('setContext', 'smartnotes.hasCopiedNote', false);
+    })
+  );
+
   context.subscriptions.push(
     vscode.commands.registerCommand('smartnotes.gutterAction', async (ctx?: { lineNumber: number }) => {
       const editor = vscode.window.activeTextEditor;
@@ -192,9 +271,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       const notes = noteStore!.getNotesAtLine(fileKey, line);
 
       if (notes.length === 0) {
-        const anchorText = editor.document.lineAt(line).text.trim().slice(0, 60) || undefined;
+        const anchorText = editor.document.lineAt(line).text.trim().slice(0, anchorLen()) || undefined;
         const note = await noteStore!.addNote(fileKey, line, line, '', anchorText);
-        await vscode.commands.executeCommand('vscode.open', vscode.Uri.file(note.filePath), { viewColumn: vscode.ViewColumn.Beside });
+        await vscode.commands.executeCommand('vscode.open', vscode.Uri.file(note.filePath), { viewColumn: openColumn() });
         return;
       }
 
@@ -206,12 +285,27 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       if (!picked) return;
       if (picked.action === 'open') {
         const doc = await vscode.workspace.openTextDocument(vscode.Uri.file(note.filePath));
-        await vscode.window.showTextDocument(doc, { viewColumn: vscode.ViewColumn.Beside, preview: false });
+        await vscode.window.showTextDocument(doc, { viewColumn: openColumn(), preview: false });
       } else {
         for (const n of notes) await noteStore!.deleteNote(n.id);
       }
     })
   );
+
+  // ─── orphan cleanup ───────────────────────────────────────────────────────
+  if (cfg().get<boolean>('orphanCleanup', true)) {
+    let orphansFound = false;
+    for (const note of noteStore.listAllNotes()) {
+      if (!fs.existsSync(path.join(workspaceRoot, note.file))) {
+        if (!orphansFound) {
+          outputChannel.show(true);
+          orphansFound = true;
+        }
+        outputChannel.appendLine(`[SmartNotes] Removed orphan note: ${note.file} (line ${note.from + 1})`);
+        await noteStore.deleteNote(note.id);
+      }
+    }
+  }
 
   // ─── file system watcher ─────────────────────────────────────────────────
 
@@ -226,25 +320,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   watcher.onDidDelete(uri => noteStore!.removeNoteFile(uri.fsPath));
   context.subscriptions.push(watcher);
 
-  // ─── orphan cleanup ───────────────────────────────────────────────────────
-
-  const config = vscode.workspace.getConfiguration('smartnotes');
-  const orphanEnabled = config.get<boolean>('orphanCleanupEnabled', true);
-  if (orphanEnabled) {
-    const intervalMs = config.get<number>('orphanCleanupIntervalMinutes', 30) * 60_000;
-    const timer = setInterval(async () => {
-      const fs = await import('fs');
-      for (const note of noteStore!.listAllNotes()) {
-        const absPath = path.join(workspaceRoot, note.file);
-        if (!fs.existsSync(absPath)) {
-          await noteStore!.deleteNote(note.id);
-        }
-      }
-    }, intervalMs);
-    context.subscriptions.push({ dispose: () => clearInterval(timer) });
-  }
-
-  context.subscriptions.push({ dispose: () => noteStore!.dispose() });
+context.subscriptions.push({ dispose: () => noteStore!.dispose() });
 }
 
 export function deactivate(): void {}

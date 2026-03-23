@@ -2,6 +2,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as vscode from 'vscode';
 import { Note } from './types';
+import { walkMdFiles, parseFilename, noteFilePath, fileKeyFromNotePath, normalizeAnchor, anchorMatches } from './noteStoreUtils';
 
 export class NoteStore {
   readonly storeDir: string;
@@ -11,17 +12,24 @@ export class NoteStore {
   readonly onDidChange: vscode.Event<string> = this.changeEmitter.event;
 
   constructor(private workspaceRoot: string) {
-    this.storeDir = path.join(workspaceRoot, '.vscode', 'smartnotes');
+    const configuredPath = vscode.workspace.getConfiguration('smartnotes').get<string>('storagePath', '');
+    if (configuredPath) {
+      this.storeDir = path.isAbsolute(configuredPath)
+        ? configuredPath
+        : path.join(workspaceRoot, configuredPath);
+    } else {
+      this.storeDir = path.join(workspaceRoot, '.vscode', 'smartnotes');
+    }
     fs.mkdirSync(this.storeDir, { recursive: true });
   }
 
   async loadAll(): Promise<void> {
     this.index.clear();
-    for (const filePath of this._walkMdFiles(this.storeDir)) {
+    for (const filePath of walkMdFiles(this.storeDir)) {
       try {
-        const pos = this._parseFilename(path.basename(filePath));
+        const pos = parseFilename(path.basename(filePath));
         if (!pos) continue;
-        const fileKey = this._fileKeyFromNotePath(filePath);
+        const fileKey = fileKeyFromNotePath(this.storeDir, filePath);
         const body = fs.readFileSync(filePath, 'utf8');
         // Prefer live doc text; fall back to the slug encoded in the filename.
         const anchorText = this._anchorTextFromOpenDocs(fileKey, pos.from) ?? pos.anchorText;
@@ -46,7 +54,7 @@ export class NoteStore {
   }
 
   async addNote(fileKey: string, from: number, to: number, body: string, anchorText?: string): Promise<Note> {
-    const filePath = this._noteFilePath(fileKey, from, to, anchorText);
+    const filePath = noteFilePath(this.storeDir, fileKey, from, to, anchorText);
     fs.mkdirSync(path.dirname(filePath), { recursive: true });
     const note: Note = { id: filePath, file: fileKey, from, to, body, filePath, anchorText };
     const bucket = this.index.get(fileKey) ?? [];
@@ -67,7 +75,7 @@ export class NoteStore {
   updateNotePosition(noteId: string, from: number, to: number): void {
     const note = this._findById(noteId);
     if (!note) return;
-    const newPath = this._noteFilePath(note.file, from, to, note.anchorText);
+    const newPath = noteFilePath(this.storeDir, note.file, from, to, note.anchorText);
     note.from = from;
     note.to = to;
     if (newPath !== note.filePath) {
@@ -115,9 +123,9 @@ export class NoteStore {
 
   reloadNoteFile(filePath: string): void {
     try {
-      const pos = this._parseFilename(path.basename(filePath));
+      const pos = parseFilename(path.basename(filePath));
       if (!pos) return;
-      const fileKey = this._fileKeyFromNotePath(filePath);
+      const fileKey = fileKeyFromNotePath(this.storeDir, filePath);
       const body = fs.readFileSync(filePath, 'utf8');
       const existing = this._findById(filePath); // save anchorText BEFORE removing
       this._removeByFilePath(filePath);
@@ -143,52 +151,13 @@ export class NoteStore {
 
   // ─── private ─────────────────────────────────────────────────────────────
 
-  /** Generate a collision-safe file path for a note. */
-  private _noteFilePath(fileKey: string, from: number, to: number, anchorText?: string): string {
-    const noteDir = path.join(this.storeDir, ...fileKey.split('/'));
-    const linesPart = from === to ? `L${from + 1}` : `L${from + 1}-L${to + 1}`;
-    const slug = anchorText
-      ? ' - ' + anchorText.replace(/[<>:"/\\|?*]/g, '').trim().slice(0, 40)
-      : '';
-    const base = linesPart + slug;
-    const first = path.join(noteDir, `${base}.md`);
-    if (!fs.existsSync(first)) return first;
-    let i = 2;
-    while (true) {
-      const c = path.join(noteDir, `${base}~${i}.md`);
-      if (!fs.existsSync(c)) return c;
-      i++;
-    }
-  }
-
-  /** Parse `from`/`to` (0-indexed) and optional `anchorText` slug from filenames like
-   *  `L10.md`, `L5-L10.md`, `L10 - def foo.md`, or `[err] L10 - def foo.md`. */
-  private _parseFilename(filename: string): { from: number; to: number; anchorText?: string } | null {
-    const base = filename.slice(0, -3).replace(/^\[err\]\s*/, ''); // strip .md and optional [err] prefix
-    let m = base.match(/^L(\d+)(?:\s+-\s+(.+?))?(?:~\d+)?$/);
-    if (m) {
-      const line = parseInt(m[1], 10) - 1;
-      return { from: line, to: line, anchorText: m[2]?.trim() || undefined };
-    }
-    m = base.match(/^L(\d+)-L(\d+)(?:\s+-\s+(.+?))?(?:~\d+)?$/);
-    if (m) {
-      return { from: parseInt(m[1], 10) - 1, to: parseInt(m[2], 10) - 1, anchorText: m[3]?.trim() || undefined };
-    }
-    return null;
-  }
-
-  /** Derive the source fileKey from a note's absolute path. */
-  private _fileKeyFromNotePath(filePath: string): string {
-    const rel = path.relative(this.storeDir, path.dirname(filePath));
-    return rel.split(path.sep).join('/');
-  }
-
   private _anchorTextFromOpenDocs(fileKey: string, line: number): string | undefined {
     const doc = vscode.workspace.textDocuments.find(d => {
       const rel = path.relative(this.workspaceRoot, d.uri.fsPath).split(path.sep).join('/');
       return rel === fileKey;
     });
-    return doc && line < doc.lineCount ? doc.lineAt(line).text.trim().slice(0, 60) || undefined : undefined;
+    const len = vscode.workspace.getConfiguration('smartnotes').get<number>('anchorTextLength', 60);
+    return doc && line < doc.lineCount ? doc.lineAt(line).text.trim().slice(0, len) || undefined : undefined;
   }
 
   private _findById(noteId: string): Note | undefined {
@@ -209,25 +178,6 @@ export class NoteStore {
       }
     }
     return undefined;
-  }
-
-  private _walkMdFiles(dir: string): string[] {
-    let results: string[] = [];
-    let entries: fs.Dirent[];
-    try {
-      entries = fs.readdirSync(dir, { withFileTypes: true });
-    } catch {
-      return results;
-    }
-    for (const entry of entries) {
-      const full = path.join(dir, entry.name);
-      if (entry.isDirectory()) {
-        results = results.concat(this._walkMdFiles(full));
-      } else if (entry.isFile() && entry.name.endsWith('.md')) {
-        results.push(full);
-      }
-    }
-    return results;
   }
 
   private _scheduleDebouncedWrite(note: Note): void {
@@ -263,7 +213,7 @@ export class NoteStore {
       const alreadyErrored = path.basename(note.filePath).startsWith('[err]');
 
       // Current position still matches — clear [err] flag if present.
-      if (currentLine !== undefined && this._anchorMatches(note.anchorText, currentLine)) {
+      if (currentLine !== undefined && anchorMatches(note.anchorText, currentLine)) {
         if (alreadyErrored) {
           const newPath = path.join(path.dirname(note.filePath), path.basename(note.filePath).replace(/^\[err\]\s*/, ''));
           try {
@@ -279,7 +229,7 @@ export class NoteStore {
       let bestLine = -1;
       let bestDist = Infinity;
       for (let i = 0; i < lines.length; i++) {
-        if (this._anchorMatches(note.anchorText, lines[i])) {
+        if (anchorMatches(note.anchorText, lines[i])) {
           const dist = Math.abs(i - note.from);
           if (dist < bestDist) { bestDist = dist; bestLine = i; }
         }
@@ -317,21 +267,4 @@ export class NoteStore {
     this.changeEmitter.dispose();
   }
 
-  // ─── normalization helpers ────────────────────────────────────────────────
-
-  /** Strips trailing comments and collapses whitespace so reformats and inline
-   *  comment additions don't break anchor matching. */
-  private _normalize(text: string): string {
-    let s = text.trim();
-    s = s.replace(/\s+\/\/.*$/, '');  // trailing // comment (won't touch http://)
-    s = s.replace(/\s+#+.*$/, '');    // trailing # comment
-    return s.replace(/\s+/g, ' ').trim();
-  }
-
-  private _anchorMatches(anchorText: string, lineText: string): boolean {
-    const aNorm = this._normalize(anchorText);
-    const lNorm = this._normalize(lineText);
-    if (aNorm.length < 4 || lNorm.length < 4) return false;
-    return aNorm === lNorm || lNorm.startsWith(aNorm) || aNorm.startsWith(lNorm);
-  }
 }

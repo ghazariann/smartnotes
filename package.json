@@ -2,7 +2,7 @@
   "name": "smartnotes",
   "displayName": "SmartNotes",
   "description": "Persistent Markdown notes anchored to code lines, with hover tooltips and position tracking.",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "publisher": "ghazariann",
   "repository": {
     "type": "git",
@@ -12,8 +12,12 @@
     "vscode": "^1.85.0"
   },
   "icon": "media/icon.png",
-  "categories": ["Other"],
-  "activationEvents": ["onStartupFinished"],
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
   "main": "./dist/extension.js",
   "contributes": {
     "commands": [
@@ -59,6 +63,14 @@
       {
         "command": "smartnotes.gutterAction",
         "title": "SmartNotes: Note..."
+      },
+      {
+        "command": "smartnotes.copyNote",
+        "title": "SmartNotes: Copy Note"
+      },
+      {
+        "command": "smartnotes.pasteNote",
+        "title": "SmartNotes: Paste Note"
       },
       {
         "command": "smartnotes.notes.reveal",
@@ -135,6 +147,16 @@
           "command": "smartnotes.removeNoteAtLine",
           "group": "smartnotes@3",
           "when": "editorLineNumber in smartnotes.linesWithNotes"
+        },
+        {
+          "command": "smartnotes.copyNote",
+          "group": "smartnotes@4",
+          "when": "editorLineNumber in smartnotes.linesWithNotes"
+        },
+        {
+          "command": "smartnotes.pasteNote",
+          "group": "smartnotes@5",
+          "when": "smartnotes.hasCopiedNote && editorLineNumber not in smartnotes.linesWithNotes"
         }
       ],
       "view/item/context": [
@@ -182,7 +204,37 @@
         "mac": "cmd+alt+n",
         "when": "editorTextFocus"
       }
-    ]
+    ],
+    "configuration": {
+      "title": "SmartNotes",
+      "properties": {
+        "smartnotes.openBeside": {
+          "type": "boolean",
+          "default": false,
+          "description": "Open notes beside the current editor in a split view instead of in the same tab."
+        },
+        "smartnotes.anchorTextLength": {
+          "type": "number",
+          "default": 60,
+          "description": "Maximum characters from the source line used in note filenames."
+        },
+        "smartnotes.showOverviewRuler": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show orange ruler marks in the scrollbar for lines with notes."
+        },
+        "smartnotes.storagePath": {
+          "type": "string",
+          "default": "",
+          "description": "Custom storage directory for notes. Relative paths are resolved from the workspace root. Defaults to .vscode/.smartnotes/."
+        },
+        "smartnotes.orphanCleanup": {
+          "type": "boolean",
+          "default": true,
+          "description": "On startup, delete notes whose source file no longer exists in the workspace."
+        }
+      }
+    }
   },
   "scripts": {
     "compile": "node esbuild.js",
@@ -191,6 +243,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.27.1",
     "js-yaml": "^4.1.0"
   },
   "devDependencies": {

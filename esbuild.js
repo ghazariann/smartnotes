@@ -1,11 +1,8 @@
 const esbuild = require('esbuild');
 const isWatch = process.argv.includes('--watch');
 
-const buildOptions = {
-  entryPoints: ['src/extension.ts'],
+const sharedOptions = {
   bundle: true,
-  outfile: 'dist/extension.js',
-  external: ['vscode'],
   format: 'cjs',
   platform: 'node',
   target: 'node18',
@@ -13,8 +10,27 @@ const buildOptions = {
   minify: false,
 };
 
+const extensionOptions = {
+  ...sharedOptions,
+  entryPoints: ['src/extension.ts'],
+  outfile: 'dist/extension.js',
+  external: ['vscode'],
+};
+
+const mcpServerOptions = {
+  ...sharedOptions,
+  entryPoints: ['src/mcp-server.ts'],
+  outfile: 'dist/mcp-server.js',
+};
+
 if (isWatch) {
-  esbuild.context(buildOptions).then(ctx => ctx.watch());
+  Promise.all([
+    esbuild.context(extensionOptions).then(ctx => ctx.watch()),
+    esbuild.context(mcpServerOptions).then(ctx => ctx.watch()),
+  ]);
 } else {
-  esbuild.build(buildOptions).catch(() => process.exit(1));
+  Promise.all([
+    esbuild.build(extensionOptions),
+    esbuild.build(mcpServerOptions),
+  ]).catch(() => process.exit(1));
 }

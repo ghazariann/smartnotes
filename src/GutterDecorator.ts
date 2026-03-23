@@ -80,8 +80,9 @@ export class GutterDecorator {
       highlightRanges.push(new vscode.Range(note.from, 0, note.to, Number.MAX_SAFE_INTEGER));
     }
 
+    const showRuler = vscode.workspace.getConfiguration('smartnotes').get<boolean>('showOverviewRuler', true);
     editor.setDecorations(this.gutterType, gutterRanges);
-    editor.setDecorations(this.highlightType, highlightRanges);
+    editor.setDecorations(this.highlightType, showRuler ? highlightRanges : []);
   }
 
   private _workspaceRoot(): string {
