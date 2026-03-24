@@ -43,7 +43,7 @@ server.tool(
   'Get the full Markdown body of a note at a specific line in a file.',
   {
     file: z.string().describe('Relative path to source file, e.g. "src/extension.ts"'),
-    line: z.number().int().min(1).describe('1-based line number'),
+    line: z.coerce.number().int().min(1).describe('1-based line number'),
   },
   async ({ file, line }) => {
     const notes = getNotesAtLine(file, line - 1);
@@ -60,7 +60,7 @@ server.tool(
   'Add a new Markdown note anchored to a line in a source file.',
   {
     file: z.string().describe('Relative path to source file, e.g. "src/extension.ts"'),
-    line: z.number().int().min(1).describe('1-based line number to anchor the note to'),
+    line: z.coerce.number().int().min(1).describe('1-based line number to anchor the note to'),
     body: z.string().describe('Markdown content for the note'),
   },
   async ({ file, line, body }) => {
@@ -85,7 +85,7 @@ server.tool(
   'Update the Markdown body of an existing note at a specific line.',
   {
     file: z.string().describe('Relative path to source file'),
-    line: z.number().int().min(1).describe('1-based line number'),
+    line: z.coerce.number().int().min(1).describe('1-based line number'),
     body: z.string().describe('New Markdown content'),
   },
   async ({ file, line, body }) => {
@@ -105,7 +105,7 @@ server.tool(
   'Delete the note anchored at a specific line in a file.',
   {
     file: z.string().describe('Relative path to source file'),
-    line: z.number().int().min(1).describe('1-based line number'),
+    line: z.coerce.number().int().min(1).describe('1-based line number'),
   },
   async ({ file, line }) => {
     const notes = getNotesAtLine(file, line - 1);
@@ -125,7 +125,13 @@ server.tool(
   { query: z.string().describe('Search query') },
   async ({ query }) => {
     const lower = query.toLowerCase();
-    const matches = loadAllNotes(storeDir).filter(n => n.body.toLowerCase().includes(lower));
+    const matches = loadAllNotes(storeDir).filter(n => {
+      const errFlag = path.basename(n.filePath).startsWith('[err]') ? '[err]' : '';
+      return n.body.toLowerCase().includes(lower) ||
+        n.file.toLowerCase().includes(lower) ||
+        path.basename(n.filePath).toLowerCase().includes(lower) ||
+        errFlag.includes(lower);
+    });
     if (matches.length === 0) {
       return { content: [{ type: 'text', text: `No notes matching "${query}"` }] };
     }
@@ -142,9 +148,9 @@ server.tool(
   'Copy a note from one file/line to another location.',
   {
     from_file: z.string().describe('Source file (relative path)'),
-    from_line: z.number().int().min(1).describe('Source line (1-based)'),
+    from_line: z.coerce.number().int().min(1).describe('Source line (1-based)'),
     to_file: z.string().describe('Destination file (relative path)'),
-    to_line: z.number().int().min(1).describe('Destination line (1-based)'),
+    to_line: z.coerce.number().int().min(1).describe('Destination line (1-based)'),
   },
   async ({ from_file, from_line, to_file, to_line }) => {
     const notes = getNotesAtLine(from_file, from_line - 1);
@@ -170,9 +176,9 @@ server.tool(
   'Move a note from one file/line to another, deleting the original.',
   {
     from_file: z.string().describe('Source file (relative path)'),
-    from_line: z.number().int().min(1).describe('Source line (1-based)'),
+    from_line: z.coerce.number().int().min(1).describe('Source line (1-based)'),
     to_file: z.string().describe('Destination file (relative path)'),
-    to_line: z.number().int().min(1).describe('Destination line (1-based)'),
+    to_line: z.coerce.number().int().min(1).describe('Destination line (1-based)'),
   },
   async ({ from_file, from_line, to_file, to_line }) => {
     const notes = getNotesAtLine(from_file, from_line - 1);
