@@ -3,7 +3,7 @@ import * as path from 'path';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
-import { loadAllNotes, noteFilePath, walkMdFiles, parseFilename, fileKeyFromNotePath } from './noteStoreUtils';
+import { loadAllNotes, noteFilePath, parseFrontmatter, serializeFrontmatter } from './noteStoreUtils';
 
 const workspaceRoot = process.argv[2] ?? process.cwd();
 
@@ -15,7 +15,7 @@ function getNotesAtLine(fileKey: string, line: number) {
 
 const server = new McpServer({
   name: 'smartnotes',
-  version: '0.2.1',
+  version: '0.4.0',
 });
 
 server.tool(
@@ -31,7 +31,8 @@ server.tool(
     const lines = filtered.map(n => {
       const lineRange = n.from === n.to ? `L${n.from + 1}` : `L${n.from + 1}-${n.to + 1}`;
       const preview = n.body.split('\n')[0].slice(0, 80) || '(empty)';
-      return `${n.file}:${lineRange}${n.anchorText ? ` — ${n.anchorText}` : ''}\n  ${preview}`;
+      const errFlag = path.basename(n.filePath).startsWith('[err]') ? '[err] ' : '';
+      return `${errFlag}${n.file}:${lineRange}${n.anchorText ? ` (${n.anchorText})` : ''}\n  ${preview}`;
     });
     return { content: [{ type: 'text', text: lines.join('\n\n') }] };
   }
@@ -49,7 +50,8 @@ server.tool(
     if (notes.length === 0) {
       return { content: [{ type: 'text', text: `No note found at ${file}:${line}` }] };
     }
-    return { content: [{ type: 'text', text: notes[0].body || '(empty note)' }] };
+    const raw = fs.readFileSync(notes[0].filePath, 'utf8');
+    return { content: [{ type: 'text', text: raw || '(empty note)' }] };
   }
 );
 
@@ -67,13 +69,13 @@ server.tool(
     try {
       const srcPath = path.join(workspaceRoot, file);
       const srcLines = fs.readFileSync(srcPath, 'utf8').split('\n');
-      anchorText = srcLines[from]?.trim().slice(0, 60) || undefined;
+      anchorText = srcLines[from]?.trim() || undefined;
     } catch {
       // source file not readable — proceed without anchorText
     }
     const filePath = noteFilePath(storeDir, file, from, from, anchorText);
     fs.mkdirSync(path.dirname(filePath), { recursive: true });
-    fs.writeFileSync(filePath, body, 'utf8');
+    fs.writeFileSync(filePath, serializeFrontmatter(anchorText, from) + body, 'utf8');
     return { content: [{ type: 'text', text: `Note added at ${file}:${line}` }] };
   }
 );
@@ -91,7 +93,9 @@ server.tool(
     if (notes.length === 0) {
       return { content: [{ type: 'text', text: `No note found at ${file}:${line}` }] };
     }
-    fs.writeFileSync(notes[0].filePath, body, 'utf8');
+    const existing = fs.readFileSync(notes[0].filePath, 'utf8');
+    const { frontmatter } = parseFrontmatter(existing);
+    fs.writeFileSync(notes[0].filePath, serializeFrontmatter(frontmatter.anchor, frontmatter.line !== undefined ? frontmatter.line - 1 : undefined) + body, 'utf8');
     return { content: [{ type: 'text', text: `Note updated at ${file}:${line}` }] };
   }
 );
@@ -152,11 +156,11 @@ server.tool(
     let anchorText: string | undefined;
     try {
       const srcLines = fs.readFileSync(path.join(workspaceRoot, to_file), 'utf8').split('\n');
-      anchorText = srcLines[toFrom]?.trim().slice(0, 60) || undefined;
+      anchorText = srcLines[toFrom]?.trim() || undefined;
     } catch { /* proceed without anchorText */ }
     const filePath = noteFilePath(storeDir, to_file, toFrom, toFrom, anchorText);
     fs.mkdirSync(path.dirname(filePath), { recursive: true });
-    fs.writeFileSync(filePath, body, 'utf8');
+    fs.writeFileSync(filePath, serializeFrontmatter(anchorText, toFrom) + body, 'utf8');
     return { content: [{ type: 'text', text: `Note copied from ${from_file}:${from_line} to ${to_file}:${to_line}` }] };
   }
 );
@@ -180,11 +184,11 @@ server.tool(
     let anchorText: string | undefined;
     try {
       const srcLines = fs.readFileSync(path.join(workspaceRoot, to_file), 'utf8').split('\n');
-      anchorText = srcLines[toFrom]?.trim().slice(0, 60) || undefined;
+      anchorText = srcLines[toFrom]?.trim() || undefined;
     } catch { /* proceed without anchorText */ }
     const filePath = noteFilePath(storeDir, to_file, toFrom, toFrom, anchorText);
     fs.mkdirSync(path.dirname(filePath), { recursive: true });
-    fs.writeFileSync(filePath, body, 'utf8');
+    fs.writeFileSync(filePath, serializeFrontmatter(anchorText, toFrom) + body, 'utf8');
     try { fs.unlinkSync(notes[0].filePath); } catch { /* already gone */ }
     return { content: [{ type: 'text', text: `Note moved from ${from_file}:${from_line} to ${to_file}:${to_line}` }] };
   }

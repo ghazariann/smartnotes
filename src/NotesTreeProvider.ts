@@ -5,13 +5,33 @@ import { Note } from './types';
 
 export class NoteItem extends vscode.TreeItem {
   constructor(public readonly note: Note) {
-    const label = path.basename(note.filePath, '.md');
-    super(label, vscode.TreeItemCollapsibleState.None);
+    const rawBasename = path.basename(note.filePath, '.md');
+    const isError = rawBasename.startsWith('[err]');
+    const basename = rawBasename.replace(/^\[err\]\s*/, '');
+    const isAutoNamed = /^L\d+/.test(basename);
+    const lineLabel = note.from === note.to ? `L${note.from + 1}` : `L${note.from + 1}-${note.to + 1}`;
     const isEmpty = !note.body.trim();
-    this.description = isEmpty ? '(bookmark)' : note.body.split('\n')[0].trim().slice(0, 60);
-    this.tooltip = note.body || '(bookmark)';
+    const bodyPreview = note.body.split('\n').find(l => l.trim()) ?? '';
+
+    let label: string;
+    let description: string;
+    if (isAutoNamed) {
+      const anchorSnippet = note.anchorText ? '  ' + note.anchorText.slice(0, 35) : '';
+      label = (isError ? '[err] ' : '') + lineLabel + anchorSnippet;
+      description = isEmpty ? '' : bodyPreview.trim().slice(0, 60);
+    } else {
+      label = (isError ? '[err] ' : '') + basename;
+      description = '';
+    }
+
+    super(label, vscode.TreeItemCollapsibleState.None);
+    this.description = description;
+    this.tooltip = [
+      `${lineLabel}${note.anchorText ? '  ' + note.anchorText : ''}`,
+      isEmpty ? '(empty)' : note.body.trim().slice(0, 200),
+    ].join('\n');
     this.contextValue = 'smartnotesNote';
-    this.iconPath = new vscode.ThemeIcon(isEmpty ? 'bookmark' : 'note');
+    this.iconPath = new vscode.ThemeIcon(isError ? 'warning' : isEmpty ? 'bookmark' : 'note');
     this.command = { command: 'smartnotes.notes.open', title: 'Open Note', arguments: [this] };
   }
 }

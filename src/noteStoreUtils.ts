@@ -2,6 +2,25 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { Note } from './types';
 
+export interface NoteFrontmatter { anchor?: string; line?: number }
+
+export function parseFrontmatter(raw: string): { frontmatter: NoteFrontmatter; body: string } {
+  const m = raw.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n([\s\S]*)$/);
+  if (!m) return { frontmatter: {}, body: raw };
+  const anchorMatch = m[1].match(/^anchor:\s*"((?:[^"\\]|\\.)*)"/m);
+  const lineMatch = m[1].match(/^line:\s*(\d+)/m);
+  const anchor = anchorMatch ? anchorMatch[1].replace(/\\"/g, '"').replace(/\\\\/g, '\\') : undefined;
+  const line = lineMatch ? parseInt(lineMatch[1], 10) : undefined;
+  return { frontmatter: { anchor, line }, body: m[2] };
+}
+
+export function serializeFrontmatter(anchorText: string | undefined, line?: number): string {
+  if (!anchorText) return '';
+  const escaped = anchorText.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+  const linePart = line !== undefined ? `\nline: ${line + 1}` : '';
+  return `---\nanchor: "${escaped}"${linePart}\n---\n\n`;
+}
+
 export function walkMdFiles(dir: string): string[] {
   let results: string[] = [];
   let entries: fs.Dirent[];
@@ -72,7 +91,7 @@ export function anchorMatches(anchorText: string, lineText: string): boolean {
   const aNorm = normalizeAnchor(anchorText);
   const lNorm = normalizeAnchor(lineText);
   if (aNorm.length < 4 || lNorm.length < 4) return false;
-  return aNorm === lNorm || lNorm.startsWith(aNorm) || aNorm.startsWith(lNorm);
+  return aNorm === lNorm || lNorm.startsWith(aNorm);
 }
 
 /** Load all notes from a store directory into a flat array. */
@@ -80,11 +99,22 @@ export function loadAllNotes(storeDir: string): Note[] {
   const notes: Note[] = [];
   for (const filePath of walkMdFiles(storeDir)) {
     try {
-      const pos = parseFilename(path.basename(filePath));
-      if (!pos) continue;
       const fileKey = fileKeyFromNotePath(storeDir, filePath);
-      const body = fs.readFileSync(filePath, 'utf8');
-      notes.push({ id: filePath, file: fileKey, from: pos.from, to: pos.to, body, filePath, anchorText: pos.anchorText });
+      const raw = fs.readFileSync(filePath, 'utf8');
+      const { frontmatter, body } = parseFrontmatter(raw);
+      const pos = parseFilename(path.basename(filePath));
+      let from: number, to: number;
+      if (frontmatter.line !== undefined) {
+        from = frontmatter.line - 1;
+        to = from;
+      } else if (pos) {
+        from = pos.from;
+        to = pos.to;
+      } else {
+        continue;
+      }
+      const anchorText = frontmatter.anchor ?? pos?.anchorText;
+      notes.push({ id: filePath, file: fileKey, from, to, body, filePath, anchorText });
     } catch {
       // skip unreadable files
     }

@@ -2,7 +2,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as vscode from 'vscode';
 import { Note } from './types';
-import { walkMdFiles, parseFilename, noteFilePath, fileKeyFromNotePath, normalizeAnchor, anchorMatches } from './noteStoreUtils';
+import { walkMdFiles, parseFilename, noteFilePath, fileKeyFromNotePath, normalizeAnchor, anchorMatches, parseFrontmatter, serializeFrontmatter } from './noteStoreUtils';
 
 export class NoteStore {
   readonly storeDir: string;
@@ -27,13 +27,22 @@ export class NoteStore {
     this.index.clear();
     for (const filePath of walkMdFiles(this.storeDir)) {
       try {
-        const pos = parseFilename(path.basename(filePath));
-        if (!pos) continue;
         const fileKey = fileKeyFromNotePath(this.storeDir, filePath);
-        const body = fs.readFileSync(filePath, 'utf8');
-        // Prefer live doc text; fall back to the slug encoded in the filename.
-        const anchorText = this._anchorTextFromOpenDocs(fileKey, pos.from) ?? pos.anchorText;
-        const note: Note = { id: filePath, file: fileKey, from: pos.from, to: pos.to, body, filePath, anchorText };
+        const raw = fs.readFileSync(filePath, 'utf8');
+        const { frontmatter, body } = parseFrontmatter(raw);
+        const pos = parseFilename(path.basename(filePath));
+        let from: number, to: number;
+        if (frontmatter.line !== undefined) {
+          from = frontmatter.line - 1;
+          to = from;
+        } else if (pos) {
+          from = pos.from;
+          to = pos.to;
+        } else {
+          continue;
+        }
+        const anchorText = this._anchorTextFromOpenDocs(fileKey, from) ?? frontmatter.anchor ?? pos?.anchorText;
+        const note: Note = { id: filePath, file: fileKey, from, to, body, filePath, anchorText };
         const bucket = this.index.get(fileKey) ?? [];
         bucket.push(note);
         this.index.set(fileKey, bucket);
@@ -60,7 +69,7 @@ export class NoteStore {
     const bucket = this.index.get(fileKey) ?? [];
     bucket.push(note);
     this.index.set(fileKey, bucket);
-    fs.writeFileSync(filePath, body, 'utf8');
+    fs.writeFileSync(filePath, serializeFrontmatter(anchorText, from) + body, 'utf8');
     this.changeEmitter.fire(fileKey);
     return note;
   }
@@ -75,23 +84,25 @@ export class NoteStore {
   updateNotePosition(noteId: string, from: number, to: number): void {
     const note = this._findById(noteId);
     if (!note) return;
-    const newPath = noteFilePath(this.storeDir, note.file, from, to, note.anchorText);
     note.from = from;
     note.to = to;
-    if (newPath !== note.filePath) {
-      try {
-        fs.renameSync(note.filePath, newPath);
-      } catch {
-        return;
+    // If the filename still has the auto-generated L{n} form, rename it to stay consistent.
+    // If the user gave it a custom name (no L{n} prefix), leave the file alone.
+    const basename = path.basename(note.filePath);
+    const isAutoNamed = /^(?:\[err\]\s*)?L\d+/.test(basename);
+    if (isAutoNamed) {
+      const newPath = noteFilePath(this.storeDir, note.file, from, to, note.anchorText);
+      if (newPath !== note.filePath) {
+        try {
+          fs.renameSync(note.filePath, newPath);
+          const timer = this.writeTimers.get(note.id);
+          if (timer) { this.writeTimers.delete(note.id); this.writeTimers.set(newPath, timer); }
+          note.id = newPath;
+          note.filePath = newPath;
+        } catch { /* leave as-is, frontmatter write below will keep position correct */ }
       }
-      const timer = this.writeTimers.get(note.id);
-      if (timer) {
-        this.writeTimers.delete(note.id);
-        this.writeTimers.set(newPath, timer);
-      }
-      note.id = newPath;
-      note.filePath = newPath;
     }
+    this._scheduleDebouncedWrite(note);
   }
 
   async deleteNote(noteId: string): Promise<void> {
@@ -123,14 +134,23 @@ export class NoteStore {
 
   reloadNoteFile(filePath: string): void {
     try {
-      const pos = parseFilename(path.basename(filePath));
-      if (!pos) return;
       const fileKey = fileKeyFromNotePath(this.storeDir, filePath);
-      const body = fs.readFileSync(filePath, 'utf8');
-      const existing = this._findById(filePath); // save anchorText BEFORE removing
+      const raw = fs.readFileSync(filePath, 'utf8');
+      const { frontmatter, body } = parseFrontmatter(raw);
+      const pos = parseFilename(path.basename(filePath));
+      let from: number, to: number;
+      if (frontmatter.line !== undefined) {
+        from = frontmatter.line - 1;
+        to = from;
+      } else if (pos) {
+        from = pos.from;
+        to = pos.to;
+      } else {
+        return;
+      }
       this._removeByFilePath(filePath);
-      const anchorText = existing?.anchorText ?? pos.anchorText ?? this._anchorTextFromOpenDocs(fileKey, pos.from);
-      const note: Note = { id: filePath, file: fileKey, from: pos.from, to: pos.to, body, filePath, anchorText };
+      const anchorText = this._anchorTextFromOpenDocs(fileKey, from) ?? frontmatter.anchor ?? pos?.anchorText;
+      const note: Note = { id: filePath, file: fileKey, from, to, body, filePath, anchorText };
       const bucket = this.index.get(fileKey) ?? [];
       bucket.push(note);
       this.index.set(fileKey, bucket);
@@ -156,8 +176,7 @@ export class NoteStore {
       const rel = path.relative(this.workspaceRoot, d.uri.fsPath).split(path.sep).join('/');
       return rel === fileKey;
     });
-    const len = vscode.workspace.getConfiguration('smartnotes').get<number>('anchorTextLength', 60);
-    return doc && line < doc.lineCount ? doc.lineAt(line).text.trim().slice(0, len) || undefined : undefined;
+    return doc && line < doc.lineCount ? doc.lineAt(line).text.trim() || undefined : undefined;
   }
 
   private _findById(noteId: string): Note | undefined {
@@ -184,7 +203,7 @@ export class NoteStore {
     const existing = this.writeTimers.get(note.id);
     if (existing) clearTimeout(existing);
     const timer = setTimeout(() => {
-      fs.writeFileSync(note.filePath, note.body, 'utf8');
+      fs.writeFileSync(note.filePath, serializeFrontmatter(note.anchorText, note.from) + note.body, 'utf8');
       this.writeTimers.delete(note.id);
     }, 500);
     this.writeTimers.set(note.id, timer);
@@ -260,6 +279,24 @@ export class NoteStore {
         outputChannel.show(true);
       }
     }
+  }
+
+  renameNoteFile(noteId: string, newFilePath: string): void {
+    const note = this._findById(noteId);
+    if (!note || newFilePath === note.filePath) return;
+    try {
+      fs.renameSync(note.filePath, newFilePath);
+    } catch {
+      return;
+    }
+    const timer = this.writeTimers.get(note.id);
+    if (timer) {
+      this.writeTimers.delete(note.id);
+      this.writeTimers.set(newFilePath, timer);
+    }
+    note.id = newFilePath;
+    note.filePath = newFilePath;
+    this.changeEmitter.fire(note.file);
   }
 
   dispose(): void {

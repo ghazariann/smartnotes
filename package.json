@@ -2,7 +2,7 @@
   "name": "smartnotes",
   "displayName": "SmartNotes",
   "description": "Persistent Markdown notes anchored to code lines, with hover tooltips and position tracking.",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "publisher": "ghazariann",
   "repository": {
     "type": "git",
@@ -76,6 +76,11 @@
         "command": "smartnotes.notes.reveal",
         "title": "Go to Line",
         "icon": "$(target)"
+      },
+      {
+        "command": "smartnotes.notes.rename",
+        "title": "Rename Note",
+        "icon": "$(edit)"
       }
     ],
     "viewsContainers": {
@@ -160,6 +165,11 @@
         }
       ],
       "view/item/context": [
+        {
+          "command": "smartnotes.notes.rename",
+          "when": "view == smartnotes.notesView && viewItem == smartnotesNote",
+          "group": "inline@0"
+        },
         {
           "command": "smartnotes.notes.reveal",
           "when": "view == smartnotes.notesView && viewItem == smartnotesNote",

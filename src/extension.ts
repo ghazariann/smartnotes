@@ -6,6 +6,7 @@ import { HoverProvider } from './HoverProvider';
 import { GutterDecorator } from './GutterDecorator';
 import { PositionTracker } from './PositionTracker';
 import { NotesTreeProvider, NoteItem } from './NotesTreeProvider';
+import { parseFrontmatter } from './noteStoreUtils';
 
 let noteStore: NoteStore | undefined;
 let gutterDecorator: GutterDecorator | undefined;
@@ -59,7 +60,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   const currentVersion = context.extension.packageJSON.version as string;
   if (context.globalState.get<string>('smartnotes.mcpNotifiedVersion') !== currentVersion) {
-    const mcpCommand = `claude mcp add smartnotes node "${stableMcpPath.replace(/\\/g, '/')}"`;
+    const mcpCommand = `claude mcp add --scope user smartnotes node "${stableMcpPath.replace(/\\/g, '/')}"`;
     vscode.window.showInformationMessage(
       'SmartNotes: Run this once in your terminal to enable Claude Code chat integration.',
       'Copy Command'
@@ -75,22 +76,17 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const positionTracker = new PositionTracker(noteStore);
   positionTracker.register(context);
 
-  context.subscriptions.push(
-    vscode.workspace.onDidOpenTextDocument(doc => {
-      if (doc.uri.scheme !== 'file') return;
-      const fileKey = toFileKey(workspaceRoot, doc.uri);
-      if (noteStore!.getNotesForFile(fileKey).length > 0)
-        noteStore!.verifyAndReanchorFile(fileKey, doc, outputChannel);
-    })
-  );
-
-  // Run for documents already open before the extension activated.
-  for (const doc of vscode.workspace.textDocuments) {
-    if (doc.uri.scheme !== 'file') continue;
+  const verifyDoc = (doc: vscode.TextDocument) => {
+    if (doc.uri.scheme !== 'file') return;
     const fileKey = toFileKey(workspaceRoot, doc.uri);
     if (noteStore!.getNotesForFile(fileKey).length > 0)
       noteStore!.verifyAndReanchorFile(fileKey, doc, outputChannel);
-  }
+  };
+
+  context.subscriptions.push(vscode.workspace.onDidOpenTextDocument(verifyDoc));
+  context.subscriptions.push(vscode.workspace.onDidSaveTextDocument(verifyDoc));
+
+  for (const doc of vscode.workspace.textDocuments) verifyDoc(doc);
 
   const hoverProvider = new HoverProvider(noteStore, workspaceRoot);
   context.subscriptions.push(
@@ -103,6 +99,35 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const treeProvider = new NotesTreeProvider(noteStore);
   const treeView = vscode.window.createTreeView('smartnotes.notesView', { treeDataProvider: treeProvider });
   context.subscriptions.push(treeView);
+
+  context.subscriptions.push(
+    vscode.window.onDidChangeVisibleTextEditors(editors => {
+      for (const editor of editors) {
+        if (!editor.document.uri.fsPath.startsWith(noteStore!.storeDir)) continue;
+        if (!editor.document.fileName.endsWith('.md')) continue;
+        vscode.commands.executeCommand('editor.fold', { selectionLines: [0] });
+      }
+    })
+  );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand('smartnotes.notes.rename', async (item?: NoteItem) => {
+      const target = item ?? (treeView.selection[0] instanceof NoteItem ? treeView.selection[0] : undefined);
+      if (!target) return;
+      const note = target.note;
+      const currentBase = path.basename(note.filePath, '.md');
+      const newBase = await vscode.window.showInputBox({
+        prompt: 'Rename note file',
+        value: currentBase,
+        placeHolder: 'Enter a filename (without .md)',
+      });
+      if (newBase === undefined || newBase === currentBase) return;
+      const cleanBase = newBase.replace(/[<>:"/\\|?*]/g, '').trim();
+      if (!cleanBase) return;
+      const newPath = path.join(path.dirname(note.filePath), `${cleanBase}.md`);
+      noteStore!.renameNoteFile(note.id, newPath);
+    })
+  );
 
   const updateLinesWithNotesContext = (editor: vscode.TextEditor | undefined) => {
     const lines = editor
@@ -132,7 +157,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         if (to > from && editor.selection.end.character === 0) to--;
       }
 
-      const anchorText = editor.document.lineAt(from).text.trim().slice(0, anchorLen()) || undefined;
+      const anchorText = editor.document.lineAt(from).text.trim() || undefined;
       const note = await noteStore!.addNote(fileKey, from, to, '', anchorText);
       const doc = await vscode.workspace.openTextDocument(vscode.Uri.file(note.filePath));
       await vscode.window.showTextDocument(doc, { viewColumn: openColumn(), preview: false });
@@ -243,7 +268,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       const fileKey = toFileKey(workspaceRoot, editor.document.uri);
       const notes = noteStore!.getNotesAtLine(fileKey, line);
       if (notes.length === 0) return;
-      copiedNoteBody = fs.readFileSync(notes[0].filePath, 'utf8');
+      const { body } = parseFrontmatter(fs.readFileSync(notes[0].filePath, 'utf8'));
+      copiedNoteBody = body;
       vscode.commands.executeCommand('setContext', 'smartnotes.hasCopiedNote', true);
       vscode.window.showInformationMessage('SmartNotes: Note copied.');
     })
@@ -256,7 +282,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       if (!editor) return;
       const line = ctx?.lineNumber !== undefined ? ctx.lineNumber - 1 : editor.selection.active.line;
       const fileKey = toFileKey(workspaceRoot, editor.document.uri);
-      const anchorText = editor.document.lineAt(line).text.trim().slice(0, anchorLen()) || undefined;
+      const anchorText = editor.document.lineAt(line).text.trim() || undefined;
       await noteStore!.addNote(fileKey, line, line, copiedNoteBody, anchorText);
       copiedNoteBody = undefined;
       vscode.commands.executeCommand('setContext', 'smartnotes.hasCopiedNote', false);
@@ -272,7 +298,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       const notes = noteStore!.getNotesAtLine(fileKey, line);
 
       if (notes.length === 0) {
-        const anchorText = editor.document.lineAt(line).text.trim().slice(0, anchorLen()) || undefined;
+        const anchorText = editor.document.lineAt(line).text.trim() || undefined;
         const note = await noteStore!.addNote(fileKey, line, line, '', anchorText);
         await vscode.commands.executeCommand('vscode.open', vscode.Uri.file(note.filePath), { viewColumn: openColumn() });
         return;

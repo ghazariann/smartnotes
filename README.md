@@ -54,13 +54,23 @@ Each `.md` file is pure Markdown — open it in any editor. Commit the folder to
 
 SmartNotes includes a bundled MCP server so agents (claude code for now) can read and write notes directly from chat.
 
-**Setup (once):** When you install or update the extension, a notification appears with a "Copy Command" button. Click it, paste the command in your terminal:
+**Setup (once):** When you install or update the extension, a notification appears with a "Copy Command" button. Click it, paste the command in your terminal.
 
+**Global (available in all projects):**
 ```bash
-claude mcp add smartnotes node "/path/to/stable/mcp-server.js"
+claude mcp add --scope user smartnotes node "/path/to/mcp-server.js"
 ```
 
-That's it. The path is stable, so it won't change when the extension updates.
+**Project-only (current workspace only):**
+```bash
+claude mcp add smartnotes node "/path/to/mcp-server.js"
+```
+
+The path is stable and won't change when the extension updates. If the "Copy Command" button is not available, the server is typically found at:
+
+- **Windows:** `C:\Users\<you>\AppData\Roaming\Code\User\globalStorage\ghazariann.smartnotes\mcp-server.js`
+- **macOS:** `~/Library/Application Support/Code/User/globalStorage/ghazariann.smartnotes/mcp-server.js`
+- **Linux:** `~/.config/Code/User/globalStorage/ghazariann.smartnotes/mcp-server.js`
 
 **Tools available to Claude:**
 
@@ -81,4 +91,26 @@ That's it. The path is stable, so it won't change when the extension updates.
 - *"What SmartNotes do I have in this project?"*
 - *"Explain what `verifyAndReanchorFile` does and save the explanation as a note on line 249 of src/NoteStore.ts"*
 - *"I renamed utils.ts to helpers.ts, update the notes"*
-- *Check all my SmartNotes for any that start with [err] — those are notes that couldn't be re-anchored automatically after a file change. For each one, look at the note's filename to understand what function or line it was on, then search the codebase to find where that code might have moved — it could be a renamed function, a renamed file, or code extracted to a different module. Reason out the best match and move each note there using move_note and give summary"*
+- *"What SmartNotes do I have on src/NoteStore.ts?"*
+
+**Fix errored notes after a refactor:**
+
+After a large refactor, some notes may be prefixed with `[err]` meaning the extension could not locate the original line. Paste this prompt into Claude Code:
+
+> *"Check all my SmartNotes for any that start with [err]. For each one, look at the note filename to understand what function or line it was anchored to, then search the codebase to find where that code moved -- it could be a renamed function, a renamed file, or code extracted to a different module. Reason out the best match and move each note there using move_note. Give a summary of what was fixed and what could not be resolved."*
+
+**Shorthand via CLAUDE.md:**
+
+Add this to your project's `CLAUDE.md` so you can just say *"fix notes"*:
+
+```markdown
+## SmartNotes
+
+When asked to "fix notes", do the following:
+1. Call `list_notes` and find any notes whose filename starts with `[err]`
+2. For each errored note, the filename contains the original anchor text (e.g. `[err] L48 - def process_batch.md`)
+3. Search the codebase for that anchor text or function/symbol name
+4. If found in a different file or line, call `move_note` to re-anchor it
+5. If the function was renamed, search for semantically similar code nearby and use your best judgment
+6. Report what was fixed and what could not be resolved
+```

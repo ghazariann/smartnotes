@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.4.0] - 2026-03-24
+
+### Added
+- YAML frontmatter in note files stores the full lossless anchor text (`anchor:` field) and line number (`line:` field), fixing false `[err]` flags on TypeScript code with generics, union types, optional chaining, and type annotations
+- `line:` in frontmatter is authoritative - edit it directly to re-anchor a note to a different line without renaming the file
+- Rename note command in the sidebar context menu - rename to any filename (e.g. `pupu.md`); custom-named files are never auto-renamed by the position tracker
+- Auto-fold frontmatter when opening a note file so the user only sees their content
+- `[err]` warning icon and prefix shown in the sidebar panel for notes whose anchor line can no longer be found
+- Verification now also runs on file save, not only on file open
+
+### Changed
+- Full source line is stored in `anchor:` frontmatter with no truncation; the `anchorTextLength` setting no longer affects matching
+- Anchor matching is now stricter: exact match or line-starts-with-anchor only; partial prefix matches no longer produce false positives
+- Auto-named notes (`L{n}...`) show line number, anchor snippet, and body preview in the sidebar; custom-named notes show only their chosen name
+- Auto-named files still rename on re-anchor to stay readable; custom-named files update only the frontmatter `line:` field
+- MCP `get_note` now returns the full file including frontmatter so Claude sees the anchor context
+- MCP `update_note` accepts body only and preserves the existing frontmatter
+- Sidebar bookmarks no longer show `(bookmark)` text label; the icon is sufficient
+
 ## [0.3.0] - 2026-03-23
 
 ### Added
