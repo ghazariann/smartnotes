@@ -2,7 +2,7 @@
   "name": "smartnotes",
   "displayName": "SmartNotes",
   "description": "Persistent Markdown notes anchored to code lines, with hover tooltips and position tracking.",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "publisher": "ghazariann",
   "repository": {
     "type": "git",
@@ -250,13 +250,15 @@
     "compile": "node esbuild.js",
     "watch": "node esbuild.js --watch",
     "lint": "eslint src --ext ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "jest"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.27.1",
     "js-yaml": "^4.1.0"
   },
   "devDependencies": {
+    "@types/jest": "^30.0.0",
     "@types/js-yaml": "^4.0.9",
     "@types/node": "^20.0.0",
     "@types/vscode": "^1.85.0",
@@ -264,6 +266,8 @@
     "@typescript-eslint/parser": "^7.0.0",
     "esbuild": "^0.20.0",
     "eslint": "^8.57.0",
+    "jest": "^30.3.0",
+    "ts-jest": "^29.4.6",
     "typescript": "^5.4.0"
   }
 }

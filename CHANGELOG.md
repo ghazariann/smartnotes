@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.5.0] - 2026-03-24
+
+### Changed
+- Gutter positions are now tracked in a live in-memory map, fully decoupled from note files; note files are never touched during typing and are only written on save
+- All commands, hover, and keybinding context read from the live map, so everything stays correct as code shifts between saves
+- Anchor verification and re-anchoring reliability improved
+
+### Added
+- Unit test suite (`npm test`) covering position tracking and anchor matching edge cases
+
 ## [0.4.0] - 2026-03-24
 
 ### Added

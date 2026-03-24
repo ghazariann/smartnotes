@@ -10,7 +10,6 @@ export class NoteStore {
   private writeTimers: Map<string, ReturnType<typeof setTimeout>> = new Map();
   private changeEmitter = new vscode.EventEmitter<string>();
   readonly onDidChange: vscode.Event<string> = this.changeEmitter.event;
-
   constructor(private workspaceRoot: string) {
     const configuredPath = vscode.workspace.getConfiguration('smartnotes').get<string>('storagePath', '');
     if (configuredPath) {
@@ -41,7 +40,7 @@ export class NoteStore {
         } else {
           continue;
         }
-        const anchorText = this._anchorTextFromOpenDocs(fileKey, from) ?? frontmatter.anchor ?? pos?.anchorText;
+        const anchorText = frontmatter.anchor ?? pos?.anchorText ?? this._anchorTextFromOpenDocs(fileKey, from);
         const note: Note = { id: filePath, file: fileKey, from, to, body, filePath, anchorText };
         const bucket = this.index.get(fileKey) ?? [];
         bucket.push(note);
@@ -86,23 +85,17 @@ export class NoteStore {
     if (!note) return;
     note.from = from;
     note.to = to;
-    // If the filename still has the auto-generated L{n} form, rename it to stay consistent.
-    // If the user gave it a custom name (no L{n} prefix), leave the file alone.
-    const basename = path.basename(note.filePath);
-    const isAutoNamed = /^(?:\[err\]\s*)?L\d+/.test(basename);
-    if (isAutoNamed) {
-      const newPath = noteFilePath(this.storeDir, note.file, from, to, note.anchorText);
-      if (newPath !== note.filePath) {
-        try {
-          fs.renameSync(note.filePath, newPath);
-          const timer = this.writeTimers.get(note.id);
-          if (timer) { this.writeTimers.delete(note.id); this.writeTimers.set(newPath, timer); }
-          note.id = newPath;
-          note.filePath = newPath;
-        } catch { /* leave as-is, frontmatter write below will keep position correct */ }
-      }
-    }
     this._scheduleDebouncedWrite(note);
+  }
+
+  persistPosition(noteId: string, line: number): void {
+    const note = this._findById(noteId);
+    if (!note) return;
+    note.from = line;
+    note.to = line;
+    const timer = this.writeTimers.get(note.id);
+    if (timer) { clearTimeout(timer); this.writeTimers.delete(note.id); }
+    fs.writeFileSync(note.filePath, serializeFrontmatter(note.anchorText, line) + note.body, 'utf8');
   }
 
   async deleteNote(noteId: string): Promise<void> {
@@ -149,7 +142,7 @@ export class NoteStore {
         return;
       }
       this._removeByFilePath(filePath);
-      const anchorText = this._anchorTextFromOpenDocs(fileKey, from) ?? frontmatter.anchor ?? pos?.anchorText;
+      const anchorText = frontmatter.anchor ?? pos?.anchorText ?? this._anchorTextFromOpenDocs(fileKey, from);
       const note: Note = { id: filePath, file: fileKey, from, to, body, filePath, anchorText };
       const bucket = this.index.get(fileKey) ?? [];
       bucket.push(note);
@@ -255,9 +248,18 @@ export class NoteStore {
       }
 
       if (bestLine !== -1) {
-        // Found at a different line — re-anchor (updateNotePosition renames to a clean path).
         const oldFrom = note.from;
         const rangeDelta = note.to - note.from;
+        if (alreadyErrored) {
+          const newPath = path.join(path.dirname(note.filePath), path.basename(note.filePath).replace(/^\[err\]\s*/, ''));
+          try {
+            fs.renameSync(note.filePath, newPath);
+            const timer = this.writeTimers.get(note.id);
+            if (timer) { this.writeTimers.delete(note.id); this.writeTimers.set(newPath, timer); }
+            note.id = newPath;
+            note.filePath = newPath;
+          } catch { /* leave as-is */ }
+        }
         this.updateNotePosition(note.id, bestLine, bestLine + rangeDelta);
         outputChannel.appendLine(
           `[SmartNotes] Re-anchored note in ${fileKey}: line ${oldFrom + 1} → ${bestLine + 1}  ("${note.anchorText}")`

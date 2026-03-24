@@ -8,6 +8,8 @@ out/
 .vscodeignore
 esbuild.js
 tsconfig.json
+jest.config.js
+tests/
 blogpost.md
 SmartNotes-Project-Plan.md
 stage1-implementation.md

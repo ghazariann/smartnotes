@@ -27,7 +27,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   noteStore = new NoteStore(workspaceRoot);
   await noteStore.loadAll();
-
   // ─── startup image cleanup ────────────────────────────────────────────────
   {
     const IMAGE_EXTS = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg', '.bmp']);
@@ -76,24 +75,44 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const positionTracker = new PositionTracker(noteStore);
   positionTracker.register(context);
 
-  const verifyDoc = (doc: vscode.TextDocument) => {
-    if (doc.uri.scheme !== 'file') return;
+  // Initialize liveMap for all already-open documents
+  for (const doc of vscode.workspace.textDocuments) {
+    if (doc.uri.scheme !== 'file') continue;
     const fileKey = toFileKey(workspaceRoot, doc.uri);
-    if (noteStore!.getNotesForFile(fileKey).length > 0)
+    if (noteStore.getNotesForFile(fileKey).length > 0) {
+      positionTracker.initializeFile(fileKey);
+    }
+  }
+
+  // On open: fuzzy re-anchor (handles external edits, git pulls)
+  context.subscriptions.push(
+    vscode.workspace.onDidOpenTextDocument(doc => {
+      if (doc.uri.scheme !== 'file') return;
+      const fileKey = toFileKey(workspaceRoot, doc.uri);
+      if (noteStore!.getNotesForFile(fileKey).length === 0) return;
       noteStore!.verifyAndReanchorFile(fileKey, doc, outputChannel);
-  };
+      positionTracker.initializeFile(fileKey);
+    })
+  );
 
-  context.subscriptions.push(vscode.workspace.onDidOpenTextDocument(verifyDoc));
-  context.subscriptions.push(vscode.workspace.onDidSaveTextDocument(verifyDoc));
+  // On save: flush live positions then verify anchor text
+  context.subscriptions.push(
+    vscode.workspace.onDidSaveTextDocument(doc => {
+      if (doc.uri.scheme !== 'file') return;
+      const fileKey = toFileKey(workspaceRoot, doc.uri);
+      if (noteStore!.getNotesForFile(fileKey).length === 0) return;
+      positionTracker.flushLivePositions(fileKey);
+      noteStore!.verifyAndReanchorFile(fileKey, doc, outputChannel);
+      positionTracker.initializeFile(fileKey);
+    })
+  );
 
-  for (const doc of vscode.workspace.textDocuments) verifyDoc(doc);
-
-  const hoverProvider = new HoverProvider(noteStore, workspaceRoot);
+  const hoverProvider = new HoverProvider(noteStore, positionTracker, workspaceRoot);
   context.subscriptions.push(
     vscode.languages.registerHoverProvider({ scheme: 'file' }, hoverProvider)
   );
 
-  gutterDecorator = new GutterDecorator(noteStore, context);
+  gutterDecorator = new GutterDecorator(noteStore, positionTracker, context);
   gutterDecorator.register();
 
   const treeProvider = new NotesTreeProvider(noteStore);
@@ -131,13 +150,20 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   const updateLinesWithNotesContext = (editor: vscode.TextEditor | undefined) => {
     const lines = editor
-      ? noteStore!.getNotesForFile(toFileKey(workspaceRoot, editor.document.uri))
-          .flatMap(n => Array.from({ length: n.to - n.from + 1 }, (_, i) => n.from + i + 1))
+      ? [...positionTracker.getLiveLines(toFileKey(workspaceRoot, editor.document.uri)).keys()]
+          .map(l => l + 1)
       : [];
     vscode.commands.executeCommand('setContext', 'smartnotes.linesWithNotes', lines);
   };
   context.subscriptions.push(vscode.window.onDidChangeActiveTextEditor(updateLinesWithNotesContext));
-  noteStore.onDidChange(() => updateLinesWithNotesContext(vscode.window.activeTextEditor));
+  context.subscriptions.push(
+    positionTracker.onDidChangeLivePositions(fileKey => {
+      const editor = vscode.window.activeTextEditor;
+      if (editor && toFileKey(workspaceRoot, editor.document.uri) === fileKey) {
+        updateLinesWithNotesContext(editor);
+      }
+    })
+  );
   updateLinesWithNotesContext(vscode.window.activeTextEditor);
 
   // ─── commands ────────────────────────────────────────────────────────────
@@ -159,6 +185,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
       const anchorText = editor.document.lineAt(from).text.trim() || undefined;
       const note = await noteStore!.addNote(fileKey, from, to, '', anchorText);
+      positionTracker.addNote(fileKey, from, note.id);
       const doc = await vscode.workspace.openTextDocument(vscode.Uri.file(note.filePath));
       await vscode.window.showTextDocument(doc, { viewColumn: openColumn(), preview: false });
     })
@@ -171,30 +198,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
       const fileKey = toFileKey(workspaceRoot, editor.document.uri);
       const line = ctx?.lineNumber !== undefined ? ctx.lineNumber - 1 : editor.selection.active.line;
-      const notes = noteStore!.getNotesAtLine(fileKey, line);
+      const note = positionTracker.getNoteAtLine(fileKey, line);
 
-      if (notes.length === 0) {
+      if (!note) {
         vscode.window.showInformationMessage('No notes at the current line.');
         return;
       }
-      if (notes.length === 1) {
-        const doc = await vscode.workspace.openTextDocument(vscode.Uri.file(notes[0].filePath));
-        await vscode.window.showTextDocument(doc, { viewColumn: openColumn(), preview: false });
-        return;
-      }
-      const items = notes.map(n => ({
-        label: `Line ${n.from + 1}–${n.to + 1}`,
-        description: n.body.split('\n')[0].slice(0, 80) || '(empty)',
-        noteId: n.id,
-        filePath: n.filePath,
-      }));
-      const picked = await vscode.window.showQuickPick(items, {
-        placeHolder: 'Select note to open',
-      });
-      if (picked) {
-        const doc = await vscode.workspace.openTextDocument(vscode.Uri.file(picked.filePath));
-        await vscode.window.showTextDocument(doc, { viewColumn: openColumn(), preview: false });
-      }
+      const doc = await vscode.workspace.openTextDocument(vscode.Uri.file(note.filePath));
+      await vscode.window.showTextDocument(doc, { viewColumn: openColumn(), preview: false });
     })
   );
 
@@ -209,6 +220,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   context.subscriptions.push(
     vscode.commands.registerCommand('smartnotes.deleteNote', async (noteId: string) => {
+      const note = noteStore!.findById(noteId);
+      if (note) positionTracker.removeNote(note.file, noteId);
       await noteStore!.deleteNote(noteId);
     })
   );
@@ -235,6 +248,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.commands.registerCommand('smartnotes.notes.delete', async (item?: NoteItem) => {
       const target = item ?? (treeView.selection[0] instanceof NoteItem ? treeView.selection[0] : undefined);
       if (!target) return;
+      positionTracker.removeNote(target.note.file, target.note.id);
       await noteStore!.deleteNote(target.note.id);
     })
   );
@@ -251,8 +265,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       if (!editor) return;
       const line = ctx ? ctx.lineNumber - 1 : editor.selection.active.line;
       const fileKey = toFileKey(workspaceRoot, editor.document.uri);
-      const notes = noteStore!.getNotesAtLine(fileKey, line);
-      for (const note of notes) {
+      const note = positionTracker.getNoteAtLine(fileKey, line);
+      if (note) {
+        positionTracker.removeNote(fileKey, note.id);
         await noteStore!.deleteNote(note.id);
       }
     })
@@ -266,9 +281,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       if (!editor) return;
       const line = ctx?.lineNumber !== undefined ? ctx.lineNumber - 1 : editor.selection.active.line;
       const fileKey = toFileKey(workspaceRoot, editor.document.uri);
-      const notes = noteStore!.getNotesAtLine(fileKey, line);
-      if (notes.length === 0) return;
-      const { body } = parseFrontmatter(fs.readFileSync(notes[0].filePath, 'utf8'));
+      const note = positionTracker.getNoteAtLine(fileKey, line);
+      if (!note) return;
+      const { body } = parseFrontmatter(fs.readFileSync(note.filePath, 'utf8'));
       copiedNoteBody = body;
       vscode.commands.executeCommand('setContext', 'smartnotes.hasCopiedNote', true);
       vscode.window.showInformationMessage('SmartNotes: Note copied.');
@@ -283,7 +298,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       const line = ctx?.lineNumber !== undefined ? ctx.lineNumber - 1 : editor.selection.active.line;
       const fileKey = toFileKey(workspaceRoot, editor.document.uri);
       const anchorText = editor.document.lineAt(line).text.trim() || undefined;
-      await noteStore!.addNote(fileKey, line, line, copiedNoteBody, anchorText);
+      const note = await noteStore!.addNote(fileKey, line, line, copiedNoteBody, anchorText);
+      positionTracker.addNote(fileKey, line, note.id);
       copiedNoteBody = undefined;
       vscode.commands.executeCommand('setContext', 'smartnotes.hasCopiedNote', false);
     })
@@ -295,16 +311,16 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       if (!editor) return;
       const line = ctx?.lineNumber !== undefined ? ctx.lineNumber - 1 : editor.selection.active.line;
       const fileKey = toFileKey(workspaceRoot, editor.document.uri);
-      const notes = noteStore!.getNotesAtLine(fileKey, line);
+      const note = positionTracker.getNoteAtLine(fileKey, line);
 
-      if (notes.length === 0) {
+      if (!note) {
         const anchorText = editor.document.lineAt(line).text.trim() || undefined;
-        const note = await noteStore!.addNote(fileKey, line, line, '', anchorText);
-        await vscode.commands.executeCommand('vscode.open', vscode.Uri.file(note.filePath), { viewColumn: openColumn() });
+        const newNote = await noteStore!.addNote(fileKey, line, line, '', anchorText);
+        positionTracker.addNote(fileKey, line, newNote.id);
+        await vscode.commands.executeCommand('vscode.open', vscode.Uri.file(newNote.filePath), { viewColumn: openColumn() });
         return;
       }
 
-      const note = notes[0];
       const picked = await vscode.window.showQuickPick(
         [{ label: '$(go-to-file) Open note', action: 'open' }, { label: '$(trash) Remove note', action: 'remove' }],
         { placeHolder: `Line ${line + 1}: ${note.anchorText ?? ''}` }
@@ -314,7 +330,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         const doc = await vscode.workspace.openTextDocument(vscode.Uri.file(note.filePath));
         await vscode.window.showTextDocument(doc, { viewColumn: openColumn(), preview: false });
       } else {
-        for (const n of notes) await noteStore!.deleteNote(n.id);
+        positionTracker.removeNote(fileKey, note.id);
+        await noteStore!.deleteNote(note.id);
       }
     })
   );
@@ -329,6 +346,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           orphansFound = true;
         }
         outputChannel.appendLine(`[SmartNotes] Removed orphan note: ${note.file} (line ${note.from + 1})`);
+        positionTracker.removeNote(note.file, note.id);
         await noteStore.deleteNote(note.id);
       }
     }
@@ -347,7 +365,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   watcher.onDidDelete(uri => noteStore!.removeNoteFile(uri.fsPath));
   context.subscriptions.push(watcher);
 
-context.subscriptions.push({ dispose: () => noteStore!.dispose() });
+  context.subscriptions.push({ dispose: () => noteStore!.dispose() });
 }
 
 export function deactivate(): void {}

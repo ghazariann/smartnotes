@@ -2,31 +2,27 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as vscode from 'vscode';
 import { NoteStore } from './NoteStore';
+import { PositionTracker } from './PositionTracker';
 import { Note } from './types';
 import { toFileKey } from './extension';
 
 export class HoverProvider implements vscode.HoverProvider {
-  constructor(private store: NoteStore, private workspaceRoot: string) {}
+  constructor(
+    private store: NoteStore,
+    private tracker: PositionTracker,
+    private workspaceRoot: string
+  ) {}
 
   provideHover(
     document: vscode.TextDocument,
     position: vscode.Position
   ): vscode.Hover | undefined {
     const fileKey = toFileKey(this.workspaceRoot, document.uri);
-    const notes = this.store.getNotesAtLine(fileKey, position.line);
-    if (notes.length === 0) return undefined;
+    const note = this.tracker.getNoteAtLine(fileKey, position.line);
+    if (!note) return undefined;
 
-    const parts: vscode.MarkdownString[] = [];
-    for (const note of notes) {
-      parts.push(this._buildMarkdown(note, document));
-    }
-
-    // use the widest range that covers all matching notes
-    const from = Math.min(...notes.map(n => n.from));
-    const to = Math.max(...notes.map(n => n.to));
-    const range = new vscode.Range(from, 0, to, Number.MAX_SAFE_INTEGER);
-
-    return new vscode.Hover(parts, range);
+    const range = new vscode.Range(position.line, 0, position.line, Number.MAX_SAFE_INTEGER);
+    return new vscode.Hover([this._buildMarkdown(note, document)], range);
   }
 
   private _buildMarkdown(note: Note, document: vscode.TextDocument): vscode.MarkdownString {
