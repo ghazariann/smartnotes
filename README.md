@@ -76,16 +76,18 @@ The path is stable and won't change when the extension updates. If the "Copy Com
 
 | Tool | What it does |
 |------|-------------|
-| `list_notes` | List all notes; optionally filter by file |
+| `list_notes` | List all notes as JSON; optionally filter by file |
+| `list_errors` | List only notes whose anchor was lost — returns JSON |
 | `get_note` | Read a note at a specific line |
 | `add_note` | Create a note anchored to a line |
 | `update_note` | Overwrite a note's content |
 | `delete_note` | Delete a note at a line |
-| `search_notes` | Full-text search across all notes |
+| `search_notes` | Full-text search across all notes, returns JSON |
 | `copy_note` | Copy a note to another file/line |
 | `move_note` | Move a note to another file/line |
+| `set_note_name` | Give a note a custom name and pin it |
+| `unset_note_name` | Remove custom name and restore auto-generated filename |
 | `list_files` | List files that have notes, with counts |
-| `rename_file_notes` | Re-attach all notes after a file rename |
 
 **Example prompts:**
 - *"What SmartNotes do I have in this project?"*
@@ -95,20 +97,20 @@ The path is stable and won't change when the extension updates. If the "Copy Com
 
 **Fix errored notes after a refactor:**
 
-After a large refactor, some notes may be prefixed with `[err]` meaning the extension could not locate the original line. Paste this prompt into Claude Code:
+After a large refactor some notes may lose their anchor — the extension could not locate the original line. Paste this prompt into Claude Code:
 
-> *"Check all my SmartNotes for any that start with [err]. For each one, look at the note filename to understand what function or line it was anchored to, then search the codebase to find where that code moved -- it could be a renamed function, a renamed file, or code extracted to a different module. Reason out the best match and move each note there using move_note. Give a summary of what was fixed and what could not be resolved."*
+> *"Call list_errors/list_notes to get all notes whose anchor was lost. For each one, look at the anchor text to understand what function or line it was attached to, then search the codebase to find where that code moved — it could be a renamed function, a renamed file, or code extracted to a different module. Reason out the best match and move each note there using move_note. If can not locate the note, or not confident, report it in the summary. Give a summary of what was fixed and what could not be resolved."*
 
 **Shorthand via CLAUDE.md:**
 
-Add this to your project's `CLAUDE.md` so you can just say *"fix notes"*:
+Add this to your project's or global `CLAUDE.md` so you can just say *"fix notes"*:
 
 ```markdown
 ## SmartNotes
 
 When asked to "fix notes", do the following:
-1. Call `list_notes` and find any notes whose filename starts with `[err]`
-2. For each errored note, the filename contains the original anchor text (e.g. `[err] L48 - def process_batch.md`)
+1. Call `list_errors` (or, `list_`) to get all notes whose anchor could not be found
+2. For each errored note, the `anchor` field contains the original source line text
 3. Search the codebase for that anchor text or function/symbol name
 4. If found in a different file or line, call `move_note` to re-anchor it
 5. If the function was renamed, search for semantically similar code nearby and use your best judgment

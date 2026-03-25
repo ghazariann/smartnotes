@@ -2,7 +2,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { Note } from './types';
 
-export interface NoteFrontmatter { anchor?: string; line?: number }
+export interface NoteFrontmatter { anchor?: string; line?: number; error?: boolean; pinned?: boolean }
 
 export function parseFrontmatter(raw: string): { frontmatter: NoteFrontmatter; body: string } {
   const m = raw.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n([\s\S]*)$/);
@@ -11,14 +11,18 @@ export function parseFrontmatter(raw: string): { frontmatter: NoteFrontmatter; b
   const lineMatch = m[1].match(/^line:\s*(\d+)/m);
   const anchor = anchorMatch ? anchorMatch[1].replace(/\\"/g, '"').replace(/\\\\/g, '\\') : undefined;
   const line = lineMatch ? parseInt(lineMatch[1], 10) : undefined;
-  return { frontmatter: { anchor, line }, body: m[2] };
+  const error = /^error:\s*true/m.test(m[1]) ? true : undefined;
+  const pinned = /^pinned:\s*true/m.test(m[1]) ? true : undefined;
+  return { frontmatter: { anchor, line, error, pinned }, body: m[2] };
 }
 
-export function serializeFrontmatter(anchorText: string | undefined, line?: number): string {
+export function serializeFrontmatter(anchorText: string | undefined, line?: number, error?: boolean, pinned?: boolean): string {
   if (!anchorText) return '';
   const escaped = anchorText.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
   const linePart = line !== undefined ? `\nline: ${line + 1}` : '';
-  return `---\nanchor: "${escaped}"${linePart}\n---\n\n`;
+  const errorPart = error ? '\nerror: true' : '';
+  const pinnedPart = pinned ? '\npinned: true' : '';
+  return `---\nanchor: "${escaped}"${linePart}${errorPart}${pinnedPart}\n---\n\n`;
 }
 
 export function walkMdFiles(dir: string): string[] {
@@ -114,7 +118,10 @@ export function loadAllNotes(storeDir: string): Note[] {
         continue;
       }
       const anchorText = frontmatter.anchor ?? pos?.anchorText;
-      notes.push({ id: filePath, file: fileKey, from, to, body, filePath, anchorText });
+      const filenameErrored = path.basename(filePath).startsWith('[err]');
+      const error = frontmatter.error || filenameErrored || undefined;
+      const pinned = frontmatter.pinned;
+      notes.push({ id: filePath, file: fileKey, from, to, body, filePath, anchorText, error, pinned });
     } catch {
       // skip unreadable files
     }

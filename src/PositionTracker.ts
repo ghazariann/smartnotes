@@ -23,7 +23,7 @@ export class PositionTracker {
   initializeFile(fileKey: string): void {
     const map = new Map<number, string>();
     for (const note of this.store.getNotesForFile(fileKey)) {
-      if (path.basename(note.filePath).startsWith('[err]')) continue;
+      if (note.error) continue;
       map.set(note.from, note.id);
     }
     this.liveMap.set(fileKey, map);

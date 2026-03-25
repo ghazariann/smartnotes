@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.5.1] - 2026-03-25
+
+### Added
+- Pinned notes: renaming a note locks its filename; clear the rename input to restore the auto-generated name
+- `list_errors` MCP tool — lists only notes whose anchor could not be found
+- `set_note_name` / `unset_note_name` MCP tools — pin or unpin a note by name from chat
+- MCP list/search tools now return structured JSON
+
+### Changed
+- Error and pin state stored in frontmatter, not derived from filename
+- `rename_file_notes` MCP tool removed — covered by `move_note` via fix-notes flow
+
 ## [0.5.0] - 2026-03-24
 
 ### Changed

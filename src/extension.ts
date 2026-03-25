@@ -136,13 +136,16 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       const note = target.note;
       const currentBase = path.basename(note.filePath, '.md');
       const newBase = await vscode.window.showInputBox({
-        prompt: 'Rename note file',
+        prompt: 'Rename note file (clear to restore auto-name)',
         value: currentBase,
-        placeHolder: 'Enter a filename (without .md)',
+        placeHolder: 'Leave empty to unpin and restore auto-name',
       });
       if (newBase === undefined || newBase === currentBase) return;
       const cleanBase = newBase.replace(/[<>:"/\\|?*]/g, '').trim();
-      if (!cleanBase) return;
+      if (!cleanBase) {
+        noteStore!.unpinNoteFile(note.id);
+        return;
+      }
       const newPath = path.join(path.dirname(note.filePath), `${cleanBase}.md`);
       noteStore!.renameNoteFile(note.id, newPath);
     })

@@ -41,7 +41,10 @@ export class NoteStore {
           continue;
         }
         const anchorText = frontmatter.anchor ?? pos?.anchorText ?? this._anchorTextFromOpenDocs(fileKey, from);
-        const note: Note = { id: filePath, file: fileKey, from, to, body, filePath, anchorText };
+        const filenameErrored = path.basename(filePath).startsWith('[err]');
+        const error = frontmatter.error || filenameErrored || undefined;
+        const pinned = frontmatter.pinned;
+        const note: Note = { id: filePath, file: fileKey, from, to, body, filePath, anchorText, error, pinned };
         const bucket = this.index.get(fileKey) ?? [];
         bucket.push(note);
         this.index.set(fileKey, bucket);
@@ -95,7 +98,7 @@ export class NoteStore {
     note.to = line;
     const timer = this.writeTimers.get(note.id);
     if (timer) { clearTimeout(timer); this.writeTimers.delete(note.id); }
-    fs.writeFileSync(note.filePath, serializeFrontmatter(note.anchorText, line) + note.body, 'utf8');
+    fs.writeFileSync(note.filePath, serializeFrontmatter(note.anchorText, line, note.error, note.pinned) + note.body, 'utf8');
   }
 
   async deleteNote(noteId: string): Promise<void> {
@@ -143,7 +146,10 @@ export class NoteStore {
       }
       this._removeByFilePath(filePath);
       const anchorText = frontmatter.anchor ?? pos?.anchorText ?? this._anchorTextFromOpenDocs(fileKey, from);
-      const note: Note = { id: filePath, file: fileKey, from, to, body, filePath, anchorText };
+      const filenameErrored = path.basename(filePath).startsWith('[err]');
+      const error = frontmatter.error || filenameErrored || undefined;
+      const pinned = frontmatter.pinned;
+      const note: Note = { id: filePath, file: fileKey, from, to, body, filePath, anchorText, error, pinned };
       const bucket = this.index.get(fileKey) ?? [];
       bucket.push(note);
       this.index.set(fileKey, bucket);
@@ -196,7 +202,7 @@ export class NoteStore {
     const existing = this.writeTimers.get(note.id);
     if (existing) clearTimeout(existing);
     const timer = setTimeout(() => {
-      fs.writeFileSync(note.filePath, serializeFrontmatter(note.anchorText, note.from) + note.body, 'utf8');
+      fs.writeFileSync(note.filePath, serializeFrontmatter(note.anchorText, note.from, note.error, note.pinned) + note.body, 'utf8');
       this.writeTimers.delete(note.id);
     }, 500);
     this.writeTimers.set(note.id, timer);
@@ -222,17 +228,12 @@ export class NoteStore {
       if (!note.anchorText) continue;
 
       const currentLine = lines[note.from];
-      const alreadyErrored = path.basename(note.filePath).startsWith('[err]');
 
-      // Current position still matches — clear [err] flag if present.
+      // Current position still matches — clear error flag if present.
       if (currentLine !== undefined && anchorMatches(note.anchorText, currentLine)) {
-        if (alreadyErrored) {
-          const newPath = path.join(path.dirname(note.filePath), path.basename(note.filePath).replace(/^\[err\]\s*/, ''));
-          try {
-            fs.renameSync(note.filePath, newPath);
-            note.id = newPath;
-            note.filePath = newPath;
-          } catch { /* leave as-is if rename fails */ }
+        if (note.error) {
+          note.error = undefined;
+          fs.writeFileSync(note.filePath, serializeFrontmatter(note.anchorText, note.from, undefined, note.pinned) + note.body, 'utf8');
         }
         continue;
       }
@@ -250,30 +251,17 @@ export class NoteStore {
       if (bestLine !== -1) {
         const oldFrom = note.from;
         const rangeDelta = note.to - note.from;
-        if (alreadyErrored) {
-          const newPath = path.join(path.dirname(note.filePath), path.basename(note.filePath).replace(/^\[err\]\s*/, ''));
-          try {
-            fs.renameSync(note.filePath, newPath);
-            const timer = this.writeTimers.get(note.id);
-            if (timer) { this.writeTimers.delete(note.id); this.writeTimers.set(newPath, timer); }
-            note.id = newPath;
-            note.filePath = newPath;
-          } catch { /* leave as-is */ }
-        }
+        if (note.error) { note.error = undefined; }
         this.updateNotePosition(note.id, bestLine, bestLine + rangeDelta);
         outputChannel.appendLine(
           `[SmartNotes] Re-anchored note in ${fileKey}: line ${oldFrom + 1} → ${bestLine + 1}  ("${note.anchorText}")`
         );
         outputChannel.show(true);
       } else {
-        // Not found anywhere — flag as error.
-        if (!alreadyErrored) {
-          const newPath = path.join(path.dirname(note.filePath), '[err] ' + path.basename(note.filePath));
-          try {
-            fs.renameSync(note.filePath, newPath);
-            note.id = newPath;
-            note.filePath = newPath;
-          } catch { /* leave as-is */ }
+        // Not found anywhere — flag as error in frontmatter.
+        if (!note.error) {
+          note.error = true;
+          fs.writeFileSync(note.filePath, serializeFrontmatter(note.anchorText, note.from, true, note.pinned) + note.body, 'utf8');
         }
         outputChannel.appendLine(
           `[SmartNotes] Cannot re-anchor: "${note.anchorText}" not found in ${fileKey} — ${path.basename(note.filePath)}`
@@ -298,6 +286,26 @@ export class NoteStore {
     }
     note.id = newFilePath;
     note.filePath = newFilePath;
+    note.pinned = true;
+    fs.writeFileSync(note.filePath, serializeFrontmatter(note.anchorText, note.from, note.error, true) + note.body, 'utf8');
+    this.changeEmitter.fire(note.file);
+  }
+
+  unpinNoteFile(noteId: string): void {
+    const note = this._findById(noteId);
+    if (!note) return;
+    const autoPath = noteFilePath(this.storeDir, note.file, note.from, note.to, note.anchorText);
+    try {
+      fs.renameSync(note.filePath, autoPath);
+    } catch {
+      return;
+    }
+    const timer = this.writeTimers.get(note.id);
+    if (timer) { this.writeTimers.delete(note.id); this.writeTimers.set(autoPath, timer); }
+    note.id = autoPath;
+    note.filePath = autoPath;
+    note.pinned = undefined;
+    fs.writeFileSync(note.filePath, serializeFrontmatter(note.anchorText, note.from, note.error, undefined) + note.body, 'utf8');
     this.changeEmitter.fire(note.file);
   }
 

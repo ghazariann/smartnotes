@@ -6,4 +6,6 @@ export interface Note {
   body: string;       // raw Markdown (no frontmatter)
   filePath: string;   // absolute path to the .md file in .git/.smartnotes/
   anchorText?: string; // first line of source code at the noted position (display only)
+  error?: boolean;
+  pinned?: boolean;    // true when user has explicitly named this file — never auto-rename
 }

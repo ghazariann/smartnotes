@@ -4,6 +4,41 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
 import { loadAllNotes, noteFilePath, parseFrontmatter, serializeFrontmatter } from './noteStoreUtils';
+import { Note } from './types';
+
+export function noteToListItem(n: Note): Record<string, unknown> {
+  const obj: Record<string, unknown> = {
+    file: n.file,
+    line: n.from + 1,
+    anchor: n.anchorText ?? null,
+    preview: n.body.split('\n').find(l => l.trim())?.slice(0, 80) ?? '(empty)',
+  };
+  if (n.error) obj.error = true;
+  if (n.pinned) obj.name = path.basename(n.filePath, '.md');
+  return obj;
+}
+
+export function noteToErrorItem(n: Note): Record<string, unknown> {
+  const obj: Record<string, unknown> = {
+    file: n.file,
+    line: n.from + 1,
+    anchor: n.anchorText ?? null,
+  };
+  if (n.pinned) obj.name = path.basename(n.filePath, '.md');
+  return obj;
+}
+
+export function noteToSearchItem(n: Note): Record<string, unknown> {
+  const obj: Record<string, unknown> = {
+    file: n.file,
+    line: n.from + 1,
+    anchor: n.anchorText ?? null,
+    body: n.body.trim(),
+  };
+  if (n.error) obj.error = true;
+  if (n.pinned) obj.name = path.basename(n.filePath, '.md');
+  return obj;
+}
 
 const workspaceRoot = process.argv[2] ?? process.cwd();
 
@@ -28,13 +63,22 @@ server.tool(
     if (filtered.length === 0) {
       return { content: [{ type: 'text', text: 'No notes found.' }] };
     }
-    const lines = filtered.map(n => {
-      const lineRange = n.from === n.to ? `L${n.from + 1}` : `L${n.from + 1}-${n.to + 1}`;
-      const preview = n.body.split('\n')[0].slice(0, 80) || '(empty)';
-      const errFlag = path.basename(n.filePath).startsWith('[err]') ? '[err] ' : '';
-      return `${errFlag}${n.file}:${lineRange}${n.anchorText ? ` (${n.anchorText})` : ''}\n  ${preview}`;
-    });
-    return { content: [{ type: 'text', text: lines.join('\n\n') }] };
+    const result = filtered.map(noteToListItem);
+    return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+  }
+);
+
+server.tool(
+  'list_errors',
+  'List all notes whose anchor could not be found — these need to be re-anchored or deleted.',
+  {},
+  async () => {
+    const notes = loadAllNotes(storeDir).filter(n => n.error);
+    if (notes.length === 0) {
+      return { content: [{ type: 'text', text: 'No errored notes.' }] };
+    }
+    const result = notes.map(noteToErrorItem);
+    return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
   }
 );
 
@@ -95,7 +139,7 @@ server.tool(
     }
     const existing = fs.readFileSync(notes[0].filePath, 'utf8');
     const { frontmatter } = parseFrontmatter(existing);
-    fs.writeFileSync(notes[0].filePath, serializeFrontmatter(frontmatter.anchor, frontmatter.line !== undefined ? frontmatter.line - 1 : undefined) + body, 'utf8');
+    fs.writeFileSync(notes[0].filePath, serializeFrontmatter(frontmatter.anchor, frontmatter.line !== undefined ? frontmatter.line - 1 : undefined, frontmatter.error, frontmatter.pinned) + body, 'utf8');
     return { content: [{ type: 'text', text: `Note updated at ${file}:${line}` }] };
   }
 );
@@ -126,20 +170,17 @@ server.tool(
   async ({ query }) => {
     const lower = query.toLowerCase();
     const matches = loadAllNotes(storeDir).filter(n => {
-      const errFlag = path.basename(n.filePath).startsWith('[err]') ? '[err]' : '';
       return n.body.toLowerCase().includes(lower) ||
         n.file.toLowerCase().includes(lower) ||
-        path.basename(n.filePath).toLowerCase().includes(lower) ||
-        errFlag.includes(lower);
+        path.basename(n.filePath, '.md').toLowerCase().includes(lower) ||
+        (n.error && '[err]'.includes(lower)) ||
+        (n.pinned && '[pinned]'.includes(lower));
     });
     if (matches.length === 0) {
       return { content: [{ type: 'text', text: `No notes matching "${query}"` }] };
     }
-    const lines = matches.map(n => {
-      const lineRange = n.from === n.to ? `L${n.from + 1}` : `L${n.from + 1}-${n.to + 1}`;
-      return `${n.file}:${lineRange}\n${n.body.trim()}`;
-    });
-    return { content: [{ type: 'text', text: lines.join('\n\n---\n\n') }] };
+    const result = matches.map(noteToSearchItem);
+    return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
   }
 );
 
@@ -219,27 +260,61 @@ server.tool(
 );
 
 server.tool(
-  'rename_file_notes',
-  'Move all notes from one source file path to another. Use this after renaming a source file so notes stay attached.',
+  'set_note_name',
+  'Give a note a custom name (pins it). The filename is locked after this — position tracking and error state will never rename it.',
   {
-    old_file: z.string().describe('Old relative file path, e.g. "src/utils.ts"'),
-    new_file: z.string().describe('New relative file path, e.g. "src/helpers.ts"'),
+    file: z.string().describe('Relative path to source file'),
+    line: z.coerce.number().int().min(1).describe('1-based line number'),
+    name: z.string().describe('Custom name for the note file (without .md)'),
   },
-  async ({ old_file, new_file }) => {
-    const notes = loadAllNotes(storeDir).filter(n => n.file === old_file);
+  async ({ file, line, name }) => {
+    const notes = getNotesAtLine(file, line - 1);
     if (notes.length === 0) {
-      return { content: [{ type: 'text', text: `No notes found for ${old_file}` }] };
+      return { content: [{ type: 'text', text: `No note found at ${file}:${line}` }] };
     }
-    let moved = 0;
-    for (const note of notes) {
-      const newPath = noteFilePath(storeDir, new_file, note.from, note.to, note.anchorText);
-      fs.mkdirSync(path.dirname(newPath), { recursive: true });
-      try {
-        fs.renameSync(note.filePath, newPath);
-        moved++;
-      } catch { /* skip if rename fails */ }
+    const note = notes[0];
+    const cleanName = name.replace(/[<>:"/\\|?*]/g, '').trim();
+    if (!cleanName) {
+      return { content: [{ type: 'text', text: 'Name cannot be empty — use unset_note_name to restore auto-name.' }] };
     }
-    return { content: [{ type: 'text', text: `Moved ${moved} note(s) from ${old_file} to ${new_file}` }] };
+    const newPath = path.join(path.dirname(note.filePath), `${cleanName}.md`);
+    if (newPath === note.filePath) {
+      return { content: [{ type: 'text', text: `Note already named "${cleanName}".` }] };
+    }
+    try { fs.renameSync(note.filePath, newPath); } catch {
+      return { content: [{ type: 'text', text: 'Failed to rename note file.' }] };
+    }
+    const raw = fs.readFileSync(newPath, 'utf8');
+    const { frontmatter, body } = parseFrontmatter(raw);
+    fs.writeFileSync(newPath, serializeFrontmatter(frontmatter.anchor, frontmatter.line !== undefined ? frontmatter.line - 1 : undefined, frontmatter.error, true) + body, 'utf8');
+    return { content: [{ type: 'text', text: `Note at ${file}:${line} named "${cleanName}" and pinned.` }] };
+  }
+);
+
+server.tool(
+  'unset_note_name',
+  'Remove a custom name from a note, restoring the auto-generated filename and unpinning it.',
+  {
+    file: z.string().describe('Relative path to source file'),
+    line: z.coerce.number().int().min(1).describe('1-based line number'),
+  },
+  async ({ file, line }) => {
+    const notes = getNotesAtLine(file, line - 1);
+    if (notes.length === 0) {
+      return { content: [{ type: 'text', text: `No note found at ${file}:${line}` }] };
+    }
+    const note = notes[0];
+    const autoPath = noteFilePath(storeDir, note.file, note.from, note.to, note.anchorText);
+    if (autoPath === note.filePath) {
+      return { content: [{ type: 'text', text: 'Note is already using the auto-generated name.' }] };
+    }
+    try { fs.renameSync(note.filePath, autoPath); } catch {
+      return { content: [{ type: 'text', text: 'Failed to rename note file.' }] };
+    }
+    const raw = fs.readFileSync(autoPath, 'utf8');
+    const { frontmatter, body } = parseFrontmatter(raw);
+    fs.writeFileSync(autoPath, serializeFrontmatter(frontmatter.anchor, frontmatter.line !== undefined ? frontmatter.line - 1 : undefined, frontmatter.error, undefined) + body, 'utf8');
+    return { content: [{ type: 'text', text: `Note at ${file}:${line} unpinned and restored to auto-name.` }] };
   }
 );
 
@@ -248,7 +323,9 @@ async function main() {
   await server.connect(transport);
 }
 
-main().catch(err => {
-  process.stderr.write(`SmartNotes MCP error: ${err}\n`);
-  process.exit(1);
-});
+if (require.main === module) {
+  main().catch(err => {
+    process.stderr.write(`SmartNotes MCP error: ${err}\n`);
+    process.exit(1);
+  });
+}
