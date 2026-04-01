@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.2] - 2026-04-01
+
+### Fixed
+- Multi-root workspace support: notes now resolve correctly across all workspace folders
+- Cursor placed after frontmatter when a note file is opened
+- `reveal` command shows a warning instead of crashing when source file no longer exists
+
 ## [0.5.1] - 2026-03-25
 
 ### Added

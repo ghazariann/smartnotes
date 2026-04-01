@@ -12,11 +12,20 @@ let noteStore: NoteStore | undefined;
 let gutterDecorator: GutterDecorator | undefined;
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
-  const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-  if (!workspaceRoot) {
+  const folders = vscode.workspace.workspaceFolders;
+  if (!folders || folders.length === 0) {
     vscode.window.showInformationMessage('SmartNotes requires an open workspace folder.');
     return;
   }
+  // Prefer the folder that already has a smartnotes store; fall back to folders[0].
+  const cfg0 = vscode.workspace.getConfiguration('smartnotes');
+  const storagePath0 = cfg0.get<string>('storagePath', '');
+  const workspaceRoot = (folders.find(f => {
+    const candidate = storagePath0
+      ? (path.isAbsolute(storagePath0) ? storagePath0 : path.join(f.uri.fsPath, storagePath0))
+      : path.join(f.uri.fsPath, '.vscode', 'smartnotes');
+    return require('fs').existsSync(candidate);
+  }) ?? folders[0]).uri.fsPath;
 
   const outputChannel = vscode.window.createOutputChannel('SmartNotes');
   context.subscriptions.push(outputChannel);
@@ -125,6 +134,18 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         if (!editor.document.uri.fsPath.startsWith(noteStore!.storeDir)) continue;
         if (!editor.document.fileName.endsWith('.md')) continue;
         vscode.commands.executeCommand('editor.fold', { selectionLines: [0] });
+        if (editor.selection.active.line === 0) {
+          const doc = editor.document;
+          let dashCount = 0;
+          let fmEndLine = -1;
+          for (let i = 0; i < doc.lineCount; i++) {
+            if (doc.lineAt(i).text.trim() === '---' && ++dashCount === 2) { fmEndLine = i; break; }
+          }
+          if (fmEndLine !== -1) {
+            const target = new vscode.Position(Math.min(fmEndLine + 2, doc.lineCount - 1), 0);
+            editor.selection = new vscode.Selection(target, target);
+          }
+        }
       }
     })
   );
@@ -231,7 +252,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   context.subscriptions.push(
     vscode.commands.registerCommand('smartnotes.notes.reveal', async (item: NoteItem) => {
-      const sourceUri = vscode.Uri.file(path.join(workspaceRoot, item.note.file));
+      const sourceUri = fileKeyToUri(workspaceRoot, item.note.file);
+      if (!fs.existsSync(sourceUri.fsPath)) {
+        vscode.window.showWarningMessage(`Source file no longer exists: ${item.note.file}`);
+        return;
+      }
       const doc = await vscode.workspace.openTextDocument(sourceUri);
       const range = new vscode.Range(item.note.from, 0, item.note.to, 0);
       await vscode.window.showTextDocument(doc, { selection: range, preserveFocus: false });
@@ -343,7 +368,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   if (cfg().get<boolean>('orphanCleanup', true)) {
     let orphansFound = false;
     for (const note of noteStore.listAllNotes()) {
-      if (!fs.existsSync(path.join(workspaceRoot, note.file))) {
+      if (!fs.existsSync(fileKeyToUri(workspaceRoot, note.file).fsPath)) {
         if (!orphansFound) {
           outputChannel.show(true);
           orphansFound = true;
@@ -375,5 +400,18 @@ export function deactivate(): void {}
 
 export function toFileKey(workspaceRoot: string, uri: vscode.Uri): string {
   const rel = path.relative(workspaceRoot, uri.fsPath);
-  return rel.split(path.sep).join('/');
+  if (!rel.startsWith('..')) return rel.split(path.sep).join('/');
+  // File is outside the primary workspace folder (multi-root workspace)
+  return vscode.workspace.asRelativePath(uri, true).split(path.sep).join('/');
+}
+
+/** Resolve a fileKey back to an absolute URI, handling multi-root workspaces. */
+function fileKeyToUri(workspaceRoot: string, fileKey: string): vscode.Uri {
+  for (const folder of vscode.workspace.workspaceFolders ?? []) {
+    const prefix = folder.name + '/';
+    if (fileKey.startsWith(prefix)) {
+      return vscode.Uri.joinPath(folder.uri, fileKey.slice(prefix.length));
+    }
+  }
+  return vscode.Uri.file(path.join(workspaceRoot, fileKey));
 }

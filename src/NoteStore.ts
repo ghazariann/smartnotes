@@ -172,8 +172,12 @@ export class NoteStore {
 
   private _anchorTextFromOpenDocs(fileKey: string, line: number): string | undefined {
     const doc = vscode.workspace.textDocuments.find(d => {
-      const rel = path.relative(this.workspaceRoot, d.uri.fsPath).split(path.sep).join('/');
-      return rel === fileKey;
+      if (d.uri.scheme !== 'file') return false;
+      const rel = path.relative(this.workspaceRoot, d.uri.fsPath);
+      const key = rel.startsWith('..')
+        ? vscode.workspace.asRelativePath(d.uri, true).split(path.sep).join('/')
+        : rel.split(path.sep).join('/');
+      return key === fileKey;
     });
     return doc && line < doc.lineCount ? doc.lineAt(line).text.trim() || undefined : undefined;
   }
