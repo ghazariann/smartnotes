@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.5.4] - 2026-04-02
+
+### Fixed
+- Note edits now update hover and sidebar immediately on Remote SSH
+
 ## [0.5.3] - 2026-04-02
 
 ### Changed

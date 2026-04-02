@@ -83,10 +83,15 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     })
   );
 
-  // On save: flush live positions then verify anchor text
+  // On save: reload note files immediately (handles SSH where FS watchers may lag),
+  // or flush/verify source files.
   context.subscriptions.push(
     vscode.workspace.onDidSaveTextDocument(doc => {
-      if (doc.uri.scheme !== 'file') return;
+      const fsPath = doc.uri.fsPath;
+      if (fsPath.startsWith(noteStore!.storeDir)) {
+        noteStore!.reloadNoteFile(fsPath);
+        return;
+      }
       const fileKey = toFileKey(workspaceRoot, doc.uri);
       if (noteStore!.getNotesForFile(fileKey).length === 0) return;
       positionTracker.flushLivePositions(fileKey);
