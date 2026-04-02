@@ -36,27 +36,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   noteStore = new NoteStore(workspaceRoot);
   await noteStore.loadAll();
-  // ─── startup image cleanup ────────────────────────────────────────────────
-  {
-    const IMAGE_EXTS = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg', '.bmp']);
-    const walkDir = (dir: string): string[] => {
-      try {
-        return fs.readdirSync(dir, { withFileTypes: true }).flatMap(e =>
-          e.isDirectory() ? walkDir(path.join(dir, e.name)) : [path.join(dir, e.name)]
-        );
-      } catch { return []; }
-    };
-    const allFiles = walkDir(noteStore.storeDir);
-    const mdContent = allFiles
-      .filter(f => f.endsWith('.md'))
-      .map(f => { try { return fs.readFileSync(f, 'utf8'); } catch { return ''; } })
-      .join('\n');
-    for (const file of allFiles) {
-      if (IMAGE_EXTS.has(path.extname(file).toLowerCase()) && !mdContent.includes(path.basename(file))) {
-        try { fs.unlinkSync(file); } catch {}
-      }
-    }
-  }
 
   // ─── MCP server: copy to stable path and notify ───────────────────────────
   const stableMcpDir = context.globalStorageUri.fsPath;
@@ -363,22 +342,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       }
     })
   );
-
-  // ─── orphan cleanup ───────────────────────────────────────────────────────
-  if (cfg().get<boolean>('orphanCleanup', true)) {
-    let orphansFound = false;
-    for (const note of noteStore.listAllNotes()) {
-      if (!fs.existsSync(fileKeyToUri(workspaceRoot, note.file).fsPath)) {
-        if (!orphansFound) {
-          outputChannel.show(true);
-          orphansFound = true;
-        }
-        outputChannel.appendLine(`[SmartNotes] Removed orphan note: ${note.file} (line ${note.from + 1})`);
-        positionTracker.removeNote(note.file, note.id);
-        await noteStore.deleteNote(note.id);
-      }
-    }
-  }
 
   // ─── file system watcher ─────────────────────────────────────────────────
 

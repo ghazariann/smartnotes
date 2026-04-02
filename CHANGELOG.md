@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.5.3] - 2026-04-02
+
+### Changed
+- Notes and images are never auto-deleted; deletion only happens on explicit user action
+
 ## [0.5.2] - 2026-04-01
 
 ### Fixed
