@@ -19,7 +19,6 @@ export class NoteStore {
     } else {
       this.storeDir = path.join(workspaceRoot, '.vscode', 'smartnotes');
     }
-    fs.mkdirSync(this.storeDir, { recursive: true });
   }
 
   async loadAll(): Promise<void> {

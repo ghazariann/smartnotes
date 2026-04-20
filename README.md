@@ -109,7 +109,7 @@ Add this to your project's or global `CLAUDE.md` so you can just say *"fix notes
 ## SmartNotes
 
 When asked to "fix notes", do the following:
-1. Call `list_errors` (or, `list_`) to get all notes whose anchor could not be found
+1. Call `list_errors` (or, `list_notes`) to get all notes whose anchor could not be found
 2. For each errored note, the `anchor` field contains the original source line text
 3. Search the codebase for that anchor text or function/symbol name
 4. If found in a different file or line, call `move_note` to re-anchor it
